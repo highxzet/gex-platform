@@ -1,0 +1,16 @@
+# GEX Platformu reverse proxy (Build Spec Bölüm 16.1)
+# Yerelde çalıştırmak için: `docker compose up`. Üretimde domaini buraya yazın.
+
+:80 {
+	# API istekleri backend'e
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+	handle /health* {
+		reverse_proxy backend:8000
+	}
+	# Geri kalan her şey frontend'e (SPA)
+	handle {
+		reverse_proxy frontend:80
+	}
+}
