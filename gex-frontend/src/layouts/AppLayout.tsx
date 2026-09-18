@@ -1,10 +1,13 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useAuth } from "@/auth/AuthContext";
+import { useNotifications } from "@/hooks/useApi";
 import "./layout.css";
 
 interface NavItem {
   to: string;
   label: string;
   end?: boolean;
+  badge?: number;
 }
 
 const PRIMARY_NAV: NavItem[] = [
@@ -35,6 +38,7 @@ function NavGroup({ items }: { items: NavItem[] }) {
         >
           <span className="nav-item__dot" aria-hidden />
           {item.label}
+          {item.badge ? <span className="nav-item__badge">{item.badge}</span> : null}
         </NavLink>
       ))}
     </nav>
@@ -42,21 +46,36 @@ function NavGroup({ items }: { items: NavItem[] }) {
 }
 
 export function AppLayout() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const { data: notifications } = useNotifications();
+
+  const primary = PRIMARY_NAV.map((item) =>
+    item.to === "/alerts" ? { ...item, badge: notifications?.unread_count || undefined } : item
+  );
+
+  const initial = (user?.display_name || user?.email || "?").charAt(0).toLocaleUpperCase("tr");
+
+  function handleLogout() {
+    logout();
+    navigate("/login", { replace: true });
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar__brand">GEX</div>
 
         <div className="sidebar__nav">
-          <NavGroup items={PRIMARY_NAV} />
+          <NavGroup items={primary} />
           <div className="sidebar__divider" />
           <NavGroup items={SECONDARY_NAV} />
         </div>
 
-        <button className="sidebar__user" type="button">
-          <span className="sidebar__user-avatar">K</span>
-          <span className="sidebar__user-name">kurucu</span>
-          <span className="sidebar__user-chevron">›</span>
+        <button className="sidebar__user" type="button" onClick={handleLogout} title="Çıkış yap">
+          <span className="sidebar__user-avatar">{initial}</span>
+          <span className="sidebar__user-name">{user?.display_name ?? user?.email ?? "—"}</span>
+          <span className="sidebar__user-chevron">⎋</span>
         </button>
       </aside>
 

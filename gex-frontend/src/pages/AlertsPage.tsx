@@ -1,12 +1,19 @@
-import { useState } from "react";
 import { Toggle } from "@/components/Toggle";
-import { MOCK_ALERTS, type MockAlert } from "@/mocks/data";
+import { EmptyState, ErrorState, Skeleton } from "@/components/States";
+import { useAlerts, useToggleAlert } from "@/hooks/useApi";
+import { timeAgo } from "@/utils/format";
+import type { ConditionType } from "@/api/types";
+
+const CONDITION_LABEL: Record<ConditionType, (t: number) => string> = {
+  flip_distance: (t) => `Flip noktasına ${t}$ kaldığında`,
+  regime_change: () => "Gamma rejimi değiştiğinde",
+  gex_pct_change: (t) => `Net GEX %${t} değiştiğinde`,
+  price_level: (t) => `Fiyat ${t}$ seviyesini geçtiğinde`,
+};
 
 export function AlertsPage() {
-  const [alerts, setAlerts] = useState<MockAlert[]>(MOCK_ALERTS);
-
-  const toggle = (id: string) =>
-    setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a)));
+  const { data, isLoading, error, refetch } = useAlerts();
+  const toggle = useToggleAlert();
 
   return (
     <div>
@@ -15,32 +22,49 @@ export function AlertsPage() {
           <h1 className="page-title">Uyarılar</h1>
           <p className="page-subtitle">Koşul sağlandığında bildirim al</p>
         </div>
-        <button className="btn btn--primary">+ Yeni uyarı</button>
       </header>
 
-      <section className="ui-card">
-        <ul style={{ listStyle: "none" }}>
-          {alerts.map((a) => (
-            <li
-              key={a.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--space-4)",
-                padding: "var(--space-4) var(--space-5)",
-                borderTop: "1px solid var(--color-border)",
-              }}
-            >
-              <span className="cell-strong" style={{ minWidth: 44 }}>{a.symbol}</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: "var(--text-sm)", color: "var(--color-text)" }}>{a.description}</div>
-                <div className="muted" style={{ fontSize: "var(--text-xs)", marginTop: 2 }}>{a.meta}</div>
-              </div>
-              <Toggle on={a.enabled} onChange={() => toggle(a.id)} label={`${a.symbol} uyarısı`} />
-            </li>
-          ))}
-        </ul>
-      </section>
+      {isLoading && <Skeleton height={280} />}
+      {error && <ErrorState error={error} onRetry={() => refetch()} />}
+
+      {data && data.items.length === 0 && (
+        <EmptyState
+          title="Henüz uyarı yok"
+          hint="Uyarı oluşturma arayüzü sonraki revizyonda eklenecek; API hazır (POST /api/alerts)."
+        />
+      )}
+
+      {data && data.items.length > 0 && (
+        <section className="ui-card">
+          <ul style={{ listStyle: "none" }}>
+            {data.items.map((a) => (
+              <li
+                key={a.id}
+                style={{
+                  display: "flex", alignItems: "center", gap: "var(--space-4)",
+                  padding: "var(--space-4) var(--space-5)", borderTop: "1px solid var(--color-border)",
+                }}
+              >
+                <span className="cell-strong" style={{ minWidth: 44 }}>{a.symbol}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "var(--text-sm)", color: "var(--color-text)" }}>
+                    {CONDITION_LABEL[a.condition_type](a.threshold_value)}
+                  </div>
+                  <div className="muted" style={{ fontSize: "var(--text-xs)", marginTop: 2 }}>
+                    {a.channels.join(" · ")} · {a.enabled ? "Aktif" : "Duraklatıldı"}
+                    {a.last_triggered_at && ` · son tetiklenme ${timeAgo(a.last_triggered_at)}`}
+                  </div>
+                </div>
+                <Toggle
+                  on={a.enabled}
+                  onChange={(next) => toggle.mutate({ id: a.id, enabled: next })}
+                  label={`${a.symbol} uyarısı`}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

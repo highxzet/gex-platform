@@ -3,8 +3,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Tabs } from "@/components/Tabs";
 import { RegimeBadge } from "@/components/RegimeBadge";
 import { GexProfileChart } from "@/components/GexProfileChart";
-import { BANKS, findBank, mockGexProfile } from "@/mocks/data";
-import { gexShort, money, pct, strike as fmtStrike, timeAgo } from "@/utils/format";
+import { LineChart, type Series } from "@/components/LineChart";
+import { EmptyState, ErrorState, RefreshingDot, Skeleton } from "@/components/States";
+import { useGexProfile, useRawData, useTimeSeries, useWatchlist } from "@/hooks/useApi";
+import { gexShort, money, strike as fmtStrike, timeAgo } from "@/utils/format";
 import "./symbol-detail.css";
 
 const TABS = [
@@ -19,54 +21,94 @@ export function SymbolDetailPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("gex");
 
-  const symbol = (ticker ?? "JPM").toUpperCase();
-  const bank = findBank(symbol);
-  const profile = mockGexProfile(symbol);
+  const { data: watchlist } = useWatchlist();
+  const symbols = watchlist?.items.map((i) => i.symbol) ?? [];
+  const active = (ticker ?? symbols[0] ?? "").toUpperCase();
 
-  if (!bank || !profile) {
+  const { data: profile, isLoading, isFetching, error, refetch } = useGexProfile(active || undefined);
+  const { data: series } = useTimeSeries(tab === "series" ? active : undefined, "30d");
+  const { data: raw } = useRawData(tab === "raw" ? active : undefined, 1, 50);
+
+  const picker = (
+    <div className="symbol-picker">
+      {symbols.map((s) => (
+        <button
+          key={s}
+          className={`symbol-chip${s === active ? " symbol-chip--active" : ""}`}
+          onClick={() => navigate(`/symbols/${s}`)}
+        >
+          {s}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (!active) {
     return (
       <div>
-        <h1 className="page-title">Sembol bulunamadı</h1>
-        <p className="page-subtitle">'{symbol}' sembolü bulunamadı veya izleme listenizde değil.</p>
+        <header className="page-header"><h1 className="page-title">Hisse Analizi</h1></header>
+        <EmptyState title="Önce izleme listenize sembol ekleyin" />
       </div>
     );
   }
 
+  if (isLoading) {
+    return (
+      <div>
+        {picker}
+        <Skeleton height={64} />
+        <div style={{ marginTop: "var(--space-6)" }}><Skeleton height={420} /></div>
+      </div>
+    );
+  }
+
+  if (error || !profile) {
+    return (
+      <div>
+        {picker}
+        <ErrorState error={error} onRetry={() => refetch()} />
+      </div>
+    );
+  }
+
+  const flipDistance =
+    profile.gamma_flip_strike != null ? profile.spot_price - profile.gamma_flip_strike : null;
+
+  const seriesData: Series[] = series
+    ? [{
+        name: "Net GEX",
+        color: "var(--color-accent)",
+        points: series.series.map((p, i) => ({ x: i, y: p.total_net_gex })),
+      }]
+    : [];
+
   return (
     <div>
-      {/* Sembol seçici (ana panelden gelmeyince hızlı geçiş) */}
-      <div className="symbol-picker">
-        {BANKS.map((b) => (
-          <button
-            key={b.symbol}
-            className={`symbol-chip${b.symbol === symbol ? " symbol-chip--active" : ""}`}
-            onClick={() => navigate(`/symbols/${b.symbol}`)}
-          >
-            {b.symbol}
-          </button>
-        ))}
-      </div>
+      {picker}
 
       <header className="sd-header">
         <div>
           <div className="sd-title-row">
-            <h1 className="page-title">{bank.symbol}</h1>
-            <RegimeBadge regime={bank.regime} />
+            <h1 className="page-title">{profile.symbol}<RefreshingDot active={isFetching} /></h1>
+            <RegimeBadge regime={profile.regime} />
           </div>
-          <p className="page-subtitle">{bank.company_name}</p>
+          <p className="page-subtitle">Hesaplama: {timeAgo(profile.computed_at)}</p>
         </div>
         <div className="sd-price">
-          <span className="sd-price__value num">{money(bank.spot_price)}</span>
-          <span className={`num ${bank.daily_change_pct >= 0 ? "pos" : "neg"}`}>{pct(bank.daily_change_pct)}</span>
+          <span className="sd-price__value num">{money(profile.spot_price)}</span>
+          {flipDistance != null && (
+            <span className={`num ${flipDistance >= 0 ? "pos" : "neg"}`}>
+              Flip'e {flipDistance >= 0 ? "+" : ""}{flipDistance.toFixed(2)}$
+            </span>
+          )}
         </div>
       </header>
 
-      {/* Metrik kartları */}
       <section className="metric-row">
-        <Metric label="Toplam Net GEX" value={gexShort(bank.total_net_gex)} tone={bank.total_net_gex >= 0 ? "pos" : "neg"} />
-        <Metric label="Gamma Flip" value={bank.gamma_flip_strike != null ? fmtStrike(bank.gamma_flip_strike) : "—"} />
-        <Metric label="Call Wall" value={bank.call_wall_strike != null ? fmtStrike(bank.call_wall_strike) : "—"} tone="pos" />
-        <Metric label="Put Wall" value={bank.put_wall_strike != null ? fmtStrike(bank.put_wall_strike) : "—"} tone="neg" />
+        <Metric label="Gamma Flip" value={profile.gamma_flip_strike != null ? fmtStrike(profile.gamma_flip_strike) : "—"} />
+        <Metric label="Call Wall" value={profile.call_wall_strike != null ? fmtStrike(profile.call_wall_strike) : "—"} tone="pos" />
+        <Metric label="Put Wall" value={profile.put_wall_strike != null ? fmtStrike(profile.put_wall_strike) : "—"} tone="neg" />
+        <Metric label="Strike Sayısı" value={String(profile.strikes.length)} />
       </section>
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
@@ -75,7 +117,6 @@ export function SymbolDetailPage() {
         <section className="ui-card ui-card--pad">
           <div className="sd-card-head">
             <h2 className="ui-card__title">GEX Profili (strike bazında net gamma exposure)</h2>
-            <span className="muted sd-computed">Hesaplama: {timeAgo(profile.computed_at)}</span>
           </div>
           <GexProfileChart
             strikes={profile.strikes}
@@ -87,43 +128,49 @@ export function SymbolDetailPage() {
         </section>
       )}
 
-      {tab === "raw" && (
-        <section className="ui-card">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Strike</th>
-                <th>Call GEX</th>
-                <th>Put GEX</th>
-                <th>Net GEX</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...profile.strikes]
-                .sort((a, b) => b.strike - a.strike)
-                .map((r) => (
-                  <tr key={r.strike}>
-                    <td className="cell-strong num">{fmtStrike(r.strike)}</td>
-                    <td className="num pos">{gexShort(r.call_gex)}</td>
-                    <td className="num neg">{gexShort(r.put_gex)}</td>
-                    <td className={`num ${r.net_gex >= 0 ? "pos" : "neg"}`}>{gexShort(r.net_gex)}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
+      {tab === "series" && (
+        <section className="ui-card ui-card--pad">
+          <h2 className="ui-card__title" style={{ marginBottom: "var(--space-4)" }}>Net GEX — son 30 gün</h2>
+          {seriesData.length && series && series.series.length > 1 ? (
+            <LineChart series={seriesData} height={300} area zeroLine yFormat={(v) => gexShort(v)} />
+          ) : (
+            <p className="muted">Zaman serisi için yeterli veri yok — veri toplandıkça dolacak.</p>
+          )}
         </section>
       )}
 
-      {tab === "series" && (
-        <section className="ui-card ui-card--pad placeholder">
-          <span>Zaman serisi grafiği (son 30 gün Net GEX) — Faz 10.</span>
-          <span className="muted">Kaynak: GET /api/symbols/{"{ticker}"}/time-series</span>
+      {tab === "raw" && (
+        <section className="ui-card">
+          {raw ? (
+            <>
+              <table className="data-table">
+                <thead>
+                  <tr><th>Strike</th><th>Vade</th><th>Call OI</th><th>Put OI</th></tr>
+                </thead>
+                <tbody>
+                  {raw.rows.map((r, i) => (
+                    <tr key={`${r.strike}-${r.expiry}-${i}`}>
+                      <td className="cell-strong num">{fmtStrike(r.strike)}</td>
+                      <td className="num">{r.expiry}</td>
+                      <td className="num">{r.call_oi.toLocaleString("tr-TR")}</td>
+                      <td className="num">{r.put_oi.toLocaleString("tr-TR")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="muted" style={{ padding: "var(--space-3) var(--space-4)", fontSize: "var(--text-xs)" }}>
+                {raw.rows.length} / {raw.total_rows.toLocaleString("tr-TR")} satır gösteriliyor
+              </p>
+            </>
+          ) : (
+            <div style={{ padding: "var(--space-5)" }}><Skeleton height={200} /></div>
+          )}
         </section>
       )}
 
       {tab === "notes" && (
-        <section className="ui-card ui-card--pad">
-          <textarea className="sd-notes" placeholder={`${bank.symbol} için not ekle... (örn. "Flip noktası altına düştü, izliyorum")`} rows={5} />
+        <section className="ui-card ui-card--pad placeholder">
+          <span>Notlar Günlük sayfasından yönetiliyor.</span>
         </section>
       )}
     </div>

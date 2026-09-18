@@ -1,32 +1,38 @@
-import { useMemo, useState } from "react";
-import { BANKS, MOCK_JOURNAL, type JournalEntry } from "@/mocks/data";
+import { useState } from "react";
+import { EmptyState, ErrorState, Skeleton } from "@/components/States";
+import {
+  useCreateJournalEntry,
+  useDeleteJournalEntry,
+  useJournal,
+  useWatchlist,
+} from "@/hooks/useApi";
 import { timeAgo } from "@/utils/format";
 import "./journal.css";
 
 export function JournalPage() {
-  const [entries, setEntries] = useState<JournalEntry[]>(MOCK_JOURNAL);
   const [filter, setFilter] = useState<string>("all");
   const [draft, setDraft] = useState("");
-  const [draftSymbol, setDraftSymbol] = useState<string>("");
+  const [draftSymbol, setDraftSymbol] = useState("");
 
-  const filtered = useMemo(
-    () => (filter === "all" ? entries : entries.filter((e) => e.symbol === filter)),
-    [entries, filter]
-  );
+  const { data: watchlist } = useWatchlist();
+  const { data, isLoading, error, refetch } = useJournal(filter === "all" ? undefined : filter);
+  const create = useCreateJournalEntry();
+  const remove = useDeleteJournalEntry();
 
   function addEntry() {
     if (!draft.trim()) return;
-    setEntries((prev) => [
-      { id: crypto.randomUUID(), symbol: draftSymbol || null, content: draft.trim(), created_at: new Date().toISOString() },
-      ...prev,
-    ]);
-    setDraft("");
-    setDraftSymbol("");
+    create.mutate(
+      { symbol: draftSymbol || null, content: draft.trim() },
+      {
+        onSuccess: () => {
+          setDraft("");
+          setDraftSymbol("");
+        },
+      }
+    );
   }
 
-  function remove(id: string) {
-    setEntries((prev) => prev.filter((e) => e.id !== id));
-  }
+  const symbols = watchlist?.items.map((i) => i.symbol) ?? [];
 
   return (
     <div>
@@ -35,7 +41,6 @@ export function JournalPage() {
         <p className="page-subtitle">Sembol bazlı ve genel işlem/analiz notları</p>
       </header>
 
-      {/* Composer */}
       <section className="ui-card ui-card--pad journal-composer">
         <textarea
           className="sd-notes"
@@ -47,46 +52,48 @@ export function JournalPage() {
         <div className="journal-composer__actions">
           <select className="journal-select" value={draftSymbol} onChange={(e) => setDraftSymbol(e.target.value)}>
             <option value="">Genel not</option>
-            {BANKS.map((b) => (
-              <option key={b.symbol} value={b.symbol}>
-                {b.symbol}
-              </option>
+            {symbols.map((s) => (
+              <option key={s} value={s}>{s}</option>
             ))}
           </select>
-          <button className="btn btn--primary" onClick={addEntry} disabled={!draft.trim()}>
-            Kaydet
+          <button className="btn btn--primary" onClick={addEntry} disabled={!draft.trim() || create.isPending}>
+            {create.isPending ? "Kaydediliyor…" : "Kaydet"}
           </button>
         </div>
       </section>
 
-      {/* Filtre */}
       <div className="symbol-picker" style={{ margin: "var(--space-5) 0" }}>
         <button className={`symbol-chip${filter === "all" ? " symbol-chip--active" : ""}`} onClick={() => setFilter("all")}>
           Tümü
         </button>
-        {Array.from(new Set(entries.map((e) => e.symbol).filter(Boolean) as string[])).map((sym) => (
-          <button key={sym} className={`symbol-chip${filter === sym ? " symbol-chip--active" : ""}`} onClick={() => setFilter(sym)}>
-            {sym}
+        {symbols.map((s) => (
+          <button key={s} className={`symbol-chip${filter === s ? " symbol-chip--active" : ""}`} onClick={() => setFilter(s)}>
+            {s}
           </button>
         ))}
       </div>
 
-      {/* Liste */}
-      <div className="journal-list">
-        {filtered.length === 0 && <p className="muted">Bu filtre için not yok.</p>}
-        {filtered.map((e) => (
-          <article key={e.id} className="ui-card ui-card--pad journal-entry">
-            <div className="journal-entry__head">
-              <span className="journal-entry__tag">{e.symbol ?? "Genel"}</span>
-              <span className="muted journal-entry__time">{timeAgo(e.created_at)}</span>
-              <button className="journal-entry__del" onClick={() => remove(e.id)} aria-label="Sil">
-                ✕
-              </button>
-            </div>
-            <p className="journal-entry__body">{e.content}</p>
-          </article>
-        ))}
-      </div>
+      {isLoading && <Skeleton height={120} count={2} />}
+      {error && <ErrorState error={error} onRetry={() => refetch()} />}
+
+      {data && data.items.length === 0 && <EmptyState title="Bu filtre için not yok." />}
+
+      {data && data.items.length > 0 && (
+        <div className="journal-list">
+          {data.items.map((e) => (
+            <article key={e.id} className="ui-card ui-card--pad journal-entry">
+              <div className="journal-entry__head">
+                <span className="journal-entry__tag">{e.symbol ?? "Genel"}</span>
+                <span className="muted journal-entry__time">{timeAgo(e.created_at)}</span>
+                <button className="journal-entry__del" onClick={() => remove.mutate(e.id)} aria-label="Sil">
+                  ✕
+                </button>
+              </div>
+              <p className="journal-entry__body">{e.content}</p>
+            </article>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

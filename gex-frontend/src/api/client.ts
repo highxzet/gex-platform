@@ -1,8 +1,14 @@
 /**
  * Merkezi API istemcisi — Build Spec Bölüm 10.1.
- * Her bileşen doğrudan fetch yapmaz; bu istemci üzerinden geçer.
+ *
+ * Token stratejisi (Bölüm 11.1 / Faz 6 notu):
+ *  - access token YALNIZCA bellekte tutulur (XSS'te çalınması zorlaşsın diye)
+ *  - refresh token localStorage'da — spec httpOnly cookie öneriyor; backend
+ *    henüz cookie set etmediği için şimdilik localStorage.
+ *    TODO(guvenlik): backend refresh'i httpOnly cookie ile verince buraya geç.
  */
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+const REFRESH_KEY = "gex.refresh_token";
 
 export class ApiError extends Error {
   code: string;
@@ -15,14 +21,81 @@ export class ApiError extends Error {
   }
 }
 
+type Listener = (authenticated: boolean) => void;
+
 class ApiClient {
   private accessToken: string | null = null;
+  private listeners = new Set<Listener>();
+  private refreshing: Promise<boolean> | null = null;
 
-  setAccessToken(token: string | null): void {
-    this.accessToken = token;
+  // ---- token yönetimi ----
+  setTokens(access: string | null, refresh?: string | null): void {
+    this.accessToken = access;
+    if (refresh !== undefined) {
+      try {
+        if (refresh) localStorage.setItem(REFRESH_KEY, refresh);
+        else localStorage.removeItem(REFRESH_KEY);
+      } catch {
+        /* private mode vb. */
+      }
+    }
+    this.listeners.forEach((l) => l(Boolean(access)));
   }
 
-  async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  getRefreshToken(): string | null {
+    try {
+      return localStorage.getItem(REFRESH_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  hasSession(): boolean {
+    return Boolean(this.accessToken) || Boolean(this.getRefreshToken());
+  }
+
+  onAuthChange(listener: Listener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  clear(): void {
+    this.setTokens(null, null);
+  }
+
+  /** Refresh token ile yeni access token alır. Aynı anda tek istek yapılır. */
+  async refreshAccessToken(): Promise<boolean> {
+    if (this.refreshing) return this.refreshing;
+
+    const refresh = this.getRefreshToken();
+    if (!refresh) return false;
+
+    this.refreshing = (async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/api/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refresh }),
+        });
+        if (!res.ok) {
+          this.clear();
+          return false;
+        }
+        const body = await res.json();
+        this.setTokens(body.access_token);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        this.refreshing = null;
+      }
+    })();
+
+    return this.refreshing;
+  }
+
+  // ---- istek ----
+  async request<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
     const res = await fetch(`${BASE_URL}${path}`, {
       ...options,
       headers: {
@@ -32,9 +105,13 @@ class ApiClient {
       },
     });
 
-    if (res.status === 204) {
-      return undefined as T;
+    // Süresi dolmuş access token -> bir kez yenilemeyi dene
+    if (res.status === 401 && retry && this.getRefreshToken()) {
+      const ok = await this.refreshAccessToken();
+      if (ok) return this.request<T>(path, options, false);
     }
+
+    if (res.status === 204) return undefined as T;
 
     if (!res.ok) {
       let code = "UNKNOWN";
@@ -46,6 +123,7 @@ class ApiClient {
       } catch {
         /* gövde JSON değil */
       }
+      if (res.status === 401) this.clear();
       throw new ApiError(code, message, res.status);
     }
 
