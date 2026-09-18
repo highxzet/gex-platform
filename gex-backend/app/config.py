@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     dealer_sign_convention: str = "standard"
     # Gamma flip seçimi: "nearest_spot" (gürültüye dayanıklı, varsayılan) | "first" (Bölüm 3.7 birebir)
     gamma_flip_selection: str = "nearest_spot"
+    # Flip yöntemi: "zero_gamma" (endüstri standardı, varsayılan) | "cumulative_strike" (Bölüm 3.7)
+    gamma_flip_method: str = "zero_gamma"
 
     # --- Zamanlanmış İşler ---
     fetch_interval_minutes: int = 2

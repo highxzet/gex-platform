@@ -216,7 +216,10 @@ class CalculationEngine:
             running += strike_gex_map[s]
             cumulative.append(running)
 
-        gamma_flip = self.select_gamma_flip(sorted_strikes, cumulative, spot)
+        if settings.gamma_flip_method == "zero_gamma":
+            gamma_flip = self.compute_zero_gamma_level(option_rows, spot)
+        else:
+            gamma_flip = self.select_gamma_flip(sorted_strikes, cumulative, spot)
         call_wall, put_wall = self.find_walls(strike_gex_map)
         regime = self.determine_regime(spot, gamma_flip)
 
@@ -230,3 +233,83 @@ class CalculationEngine:
             spot_price=spot,
             strike_results=strike_results,
         )
+
+    # ---- Zero-gamma level (endüstri standardı gamma flip) ----
+    def _option_arrays(self, option_rows: list[dict]) -> tuple[np.ndarray, ...]:
+        """Satırları vektörize hesaplama için NumPy dizilerine çevirir."""
+        n = len(option_rows)
+        K = np.empty(n)
+        T = np.empty(n)
+        oi_c = np.empty(n)
+        oi_p = np.empty(n)
+        iv_c = np.empty(n)
+        iv_p = np.empty(n)
+        g_c = np.empty(n)
+        g_p = np.empty(n)
+        for i, r in enumerate(option_rows):
+            K[i] = r["strike"]
+            T[i] = r["expiry_years"]
+            oi_c[i] = r["call_oi"]
+            oi_p[i] = r["put_oi"]
+            iv_c[i] = r.get("call_iv") if r.get("call_iv") else np.nan
+            iv_p[i] = r.get("put_iv") if r.get("put_iv") else np.nan
+            g_c[i] = r.get("call_gamma") if r.get("call_gamma") is not None else np.nan
+            g_p[i] = r.get("put_gamma") if r.get("put_gamma") is not None else np.nan
+        return K, T, oi_c, oi_p, iv_c, iv_p, g_c, g_p
+
+    @staticmethod
+    def _bs_gamma_vec(S: float, K: np.ndarray, T: np.ndarray, sigma: np.ndarray, r: float) -> np.ndarray:
+        """Vektörize Black-Scholes gamma; geçersiz girdilerde 0."""
+        with np.errstate(divide="ignore", invalid="ignore"):
+            valid = (T > 0) & (sigma > 0) & np.isfinite(sigma) & (K > 0)
+            d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
+            gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
+        return np.where(valid & np.isfinite(gamma), gamma, 0.0)
+
+    def total_net_gex_at(self, option_rows: list[dict], S: float, arrays: tuple | None = None) -> float:
+        """Hipotetik spot fiyat S için TOPLAM net GEX.
+
+        Gamma, S'te YENİDEN hesaplanır — zero-gamma seviyesinin özü budur.
+        Sağlayıcıdan gelen sabit gamma varsa o korunur.
+        """
+        if S <= 0:
+            return 0.0
+        K, T, oi_c, oi_p, iv_c, iv_p, g_c, g_p = arrays or self._option_arrays(option_rows)
+        gc = np.where(np.isnan(g_c), self._bs_gamma_vec(S, K, T, iv_c, self.risk_free_rate), g_c)
+        gp = np.where(np.isnan(g_p), self._bs_gamma_vec(S, K, T, iv_p, self.risk_free_rate), g_p)
+        factor = self.contract_multiplier * (S**2) * self.gex_move_pct
+        return float(np.sum(gc * oi_c - gp * oi_p) * factor)
+
+    def compute_zero_gamma_level(
+        self,
+        option_rows: list[dict],
+        spot: float,
+        search_pct: float = 0.30,
+        grid_points: int = 61,
+    ) -> float | None:
+        """Toplam net GEX'in işaret değiştirdiği FİYAT (zero-gamma level).
+
+        Endüstri (SqueezeMetrics/SpotGamma) tanımı: spot hipotetik olarak değiştirilip
+        gamma yeniden hesaplandığında toplam GEX'in sıfırlandığı fiyat. Bölüm 3.7'deki
+        "strike'lar boyunca kümülatif toplam" yönteminden FARKLIDIR ve gerçek veride
+        çok daha kararlıdır (bkz. GAMMA_FLIP_METHOD).
+        """
+        if not option_rows or spot <= 0:
+            return None
+        arrays = self._option_arrays(option_rows)
+        grid = np.linspace(spot * (1 - search_pct), spot * (1 + search_pct), grid_points)
+        vals = [self.total_net_gex_at(option_rows, float(S), arrays) for S in grid]
+
+        crossings: list[float] = []
+        for i in range(1, len(vals)):
+            prev_v, curr_v = vals[i - 1], vals[i]
+            if prev_v == 0:
+                crossings.append(float(grid[i - 1]))
+                continue
+            if (prev_v < 0 < curr_v) or (prev_v > 0 > curr_v):
+                ratio = abs(prev_v) / (abs(prev_v) + abs(curr_v))
+                crossings.append(float(grid[i - 1] + ratio * (grid[i] - grid[i - 1])))
+
+        if not crossings:
+            return None
+        return min(crossings, key=lambda c: abs(c - spot))

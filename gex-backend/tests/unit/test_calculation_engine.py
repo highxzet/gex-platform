@@ -184,8 +184,15 @@ def _manual_example_rows() -> list[dict]:
     ]
 
 
-def test_full_symbol_calculation_matches_manual_example(calculation_engine):
-    """Bölüm 3.11'in tamamı: toplam, flip, wall'lar ve rejim."""
+def test_full_symbol_calculation_matches_manual_example(calculation_engine, monkeypatch):
+    """Bölüm 3.11'in tamamı: toplam, flip, wall'lar ve rejim.
+
+    Bölüm 3.11 kümülatif-strike yöntemini varsayar; bu test onu doğruladığı için
+    yöntemi açıkça seçer (varsayılan üretim yöntemi zero_gamma'dır).
+    """
+    from app.services import calculation_engine as ce
+
+    monkeypatch.setattr(ce.settings, "gamma_flip_method", "cumulative_strike")
     summary = calculation_engine.calculate_symbol_gex(
         "TEST", spot=100.00, option_rows=_manual_example_rows()
     )
@@ -288,8 +295,11 @@ def test_select_gamma_flip_first_mode_matches_spec(calculation_engine, monkeypat
     assert calculation_engine.select_gamma_flip(strikes, cumulative, spot=124.0) == pytest.approx(105.0)
 
 
-def test_calculate_symbol_gex_uses_nearest_spot_flip(calculation_engine):
-    """Uçtan uca: gürültülü düşük strike'lar flip'i kaçırtmamalı."""
+def test_calculate_symbol_gex_uses_nearest_spot_flip(calculation_engine, monkeypatch):
+    """Uçtan uca (kümülatif yöntem): gürültülü düşük strike'lar flip'i kaçırtmamalı."""
+    from app.services import calculation_engine as ce
+
+    monkeypatch.setattr(ce.settings, "gamma_flip_method", "cumulative_strike")
     rows = [
         # gürültü bölgesi: çok küçük gamma/OI
         {"strike": 50, "expiry": EXPIRY, "call_oi": 1, "put_oi": 2,
@@ -312,3 +322,82 @@ def test_find_all_gamma_flips_exact_zero_is_a_crossing(calculation_engine):
     """Kümülatif tam sıfırsa o strike doğrudan kesişim sayılır."""
     flips = calculation_engine.find_all_gamma_flips([95, 100, 105], [0.0, 50.0, 90.0])
     assert flips == [95]
+
+
+# ---------- Zero-gamma level (endüstri standardı flip) ----------
+def _iv_rows(strikes_oi: list[tuple[float, int, int]]) -> list[dict]:
+    """IV'li satırlar üretir (gamma Black-Scholes ile S'e göre yeniden hesaplanır)."""
+    return [
+        {"strike": k, "expiry": EXPIRY, "call_oi": c, "put_oi": p,
+         "call_gamma": None, "put_gamma": None, "call_iv": 0.25, "put_iv": 0.25,
+         "expiry_years": 0.25}
+        for k, c, p in strikes_oi
+    ]
+
+
+def test_total_net_gex_at_recomputes_gamma_with_spot(calculation_engine):
+    """Aynı satırlar, farklı hipotetik spot -> farklı toplam GEX."""
+    # NOT: gamma call ve put için AYNIdır; simetrik OI net GEX'i tam sıfır yapar.
+    # Bu yüzden asimetrik OI kullanılıyor.
+    rows = _iv_rows([(90, 100, 400), (100, 2000, 500), (110, 400, 100)])
+    a = calculation_engine.total_net_gex_at(rows, 100.0)
+    b = calculation_engine.total_net_gex_at(rows, 130.0)
+    assert a != b
+    assert a != 0.0
+
+
+def test_total_net_gex_at_zero_spot_is_zero(calculation_engine):
+    assert calculation_engine.total_net_gex_at(_iv_rows([(100, 1, 1)]), 0.0) == 0.0
+
+
+def test_total_net_gex_at_uses_provider_gamma_when_given(calculation_engine):
+    """Sağlayıcı gamma'sı sabittir; S ile yeniden hesaplanmaz (yalnız S^2 faktörü değişir)."""
+    rows = [{"strike": 100, "expiry": EXPIRY, "call_oi": 1000, "put_oi": 0,
+             "call_gamma": 0.05, "put_gamma": 0.0, "call_iv": None, "put_iv": None,
+             "expiry_years": 0.25}]
+    total = calculation_engine.total_net_gex_at(rows, 100.0)
+    assert total == pytest.approx(0.05 * 1000 * 100 * 100**2 * 0.01, rel=1e-9)
+
+
+def test_zero_gamma_level_found_near_spot(calculation_engine):
+    """Put ağırlığı altta, call ağırlığı üstte -> sıfır geçişi arada olmalı."""
+    rows = _iv_rows([(90, 100, 4000), (100, 2000, 2000), (110, 4000, 100)])
+    z = calculation_engine.compute_zero_gamma_level(rows, spot=100.0)
+    assert z is not None
+    assert 85 <= z <= 115
+
+
+def test_zero_gamma_level_none_when_no_crossing(calculation_engine):
+    """Sadece call OI -> GEX her fiyatta pozitif, kesişim yok."""
+    rows = _iv_rows([(90, 1000, 0), (100, 1000, 0), (110, 1000, 0)])
+    assert calculation_engine.compute_zero_gamma_level(rows, spot=100.0) is None
+
+
+def test_zero_gamma_level_empty_rows(calculation_engine):
+    assert calculation_engine.compute_zero_gamma_level([], spot=100.0) is None
+    assert calculation_engine.compute_zero_gamma_level(_iv_rows([(100, 1, 1)]), spot=0) is None
+
+
+def test_calculate_symbol_gex_uses_zero_gamma_by_default(calculation_engine):
+    rows = _iv_rows([(90, 100, 4000), (100, 2000, 2000), (110, 4000, 100)])
+    summary = calculation_engine.calculate_symbol_gex("TEST", 100.0, rows)
+    assert summary.gamma_flip_strike is not None
+    assert 85 <= summary.gamma_flip_strike <= 115
+
+
+def test_cumulative_strike_method_still_available(calculation_engine, monkeypatch):
+    """GAMMA_FLIP_METHOD='cumulative_strike' -> Bölüm 3.7 yöntemi."""
+    from app.services import calculation_engine as ce
+
+    monkeypatch.setattr(ce.settings, "gamma_flip_method", "cumulative_strike")
+    summary = calculation_engine.calculate_symbol_gex("TEST", 100.00, _manual_example_rows())
+    assert summary.gamma_flip_strike == pytest.approx(100.5405, abs=0.001)
+
+
+def test_zero_gamma_level_handles_flat_zero_curve(calculation_engine):
+    """Tüm OI sıfırsa GEX eğrisi her fiyatta 0'dır; bu da bir kesişim sayılır."""
+    rows = _iv_rows([(90, 0, 0), (100, 0, 0), (110, 0, 0)])
+    z = calculation_engine.compute_zero_gamma_level(rows, spot=100.0)
+    assert z is not None
+    # Düz sıfır eğride her grid noktası kesişim sayılır; spot'a en yakını seçilir.
+    assert z == pytest.approx(100.0, abs=1.0)

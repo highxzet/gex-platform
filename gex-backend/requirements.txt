@@ -6,7 +6,7 @@ psycopg2-binary==2.9.9
 pydantic==2.9.0
 pydantic-settings==2.5.0
 pyjwt==2.9.0
-passlib[bcrypt]==1.7.4
+bcrypt==5.0.0
 numpy==1.26.4
 scipy==1.14.0
 yfinance==1.7.0
