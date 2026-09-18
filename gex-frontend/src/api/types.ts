@@ -188,3 +188,31 @@ export interface DataStatusResponse {
   sources: DataSource[];
   recent_outages: Outage[];
 }
+
+// ---------- Fiyat + Destek/Direnç ----------
+export interface Candle {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export type LevelKind = "resistance" | "support" | "flip";
+
+export interface GexLevel {
+  price: number;
+  kind: LevelKind;
+  label: string;
+  strength: number;
+  net_gex: number;
+}
+
+export interface PriceLevelsResponse {
+  symbol: string;
+  spot_price: number;
+  computed_at: string;
+  candles: Candle[];
+  levels: GexLevel[];
+}

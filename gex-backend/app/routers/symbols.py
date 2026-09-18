@@ -11,9 +11,14 @@ from app.models import User
 from app.repositories import gex_repository as gex_repo
 from app.repositories import symbol_repository as sym_repo
 from app.repositories import watchlist_repository as wl_repo
+from app.providers import get_provider
+from app.services.calculation_engine import CalculationEngine
 from app.schemas.gex import (
     GexProfileResponse,
     GexStrikePoint,
+    CandleOut,
+    LevelOut,
+    PriceLevelsResponse,
     RawDataResponse,
     RawDataRow,
     TimeSeriesPoint,
@@ -139,5 +144,48 @@ def get_raw_data(
                 put_gamma=float(r.put_gamma) if r.put_gamma is not None else None,
             )
             for r in rows
+        ],
+    )
+
+
+@router.get("/{ticker}/price-levels", response_model=PriceLevelsResponse)
+def get_price_levels(
+    ticker: str,
+    days: int = Query(90, ge=5, le=365),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> PriceLevelsResponse:
+    """Fiyat mumları + GEX'ten türetilmiş destek/direnç seviyeleri.
+
+    Seviyeler en güncel hesaplama çalıştırmasının strike bazlı GEX'inden üretilir
+    (bkz. CalculationEngine.compute_levels).
+    """
+    symbol = _get_symbol_or_404(db, ticker)
+    summary = gex_repo.get_latest_summary(db, symbol.id)
+    if summary is None:
+        raise BusinessRuleError("NO_OPTIONS_DATA", "Bu sembol için opsiyon verisi bulunmuyor.")
+
+    strikes = gex_repo.get_strikes_for_run(db, symbol.id, summary.calculation_run_id)
+    strike_map: dict[float, float] = {}
+    for r in strikes:
+        strike_map[float(r.strike)] = strike_map.get(float(r.strike), 0.0) + float(r.net_gex)
+
+    spot = float(summary.spot_price_at_calc)
+    flip = float(summary.gamma_flip_strike) if summary.gamma_flip_strike is not None else None
+    levels = CalculationEngine().compute_levels(strike_map, spot, flip)
+
+    candles = get_provider().get_price_history(symbol.ticker, days)
+
+    return PriceLevelsResponse(
+        symbol=symbol.ticker,
+        spot_price=spot,
+        computed_at=summary.computed_at,
+        candles=[
+            CandleOut(date=c.date, open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume)
+            for c in candles
+        ],
+        levels=[
+            LevelOut(price=lv.price, kind=lv.kind, label=lv.label, strength=lv.strength, net_gex=lv.net_gex)
+            for lv in levels
         ],
     )

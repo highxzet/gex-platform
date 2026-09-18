@@ -20,6 +20,8 @@ class Symbol(Base):
     ticker: Mapped[str] = mapped_column(String(10), nullable=False, unique=True)
     company_name: Mapped[str | None] = mapped_column(String(255))
     sector: Mapped[str | None] = mapped_column(String(100))
+    # Endeks üyeliği: "SP500", "NDX" veya "NDX+SP500" (evren filtrelemesi için)
+    indices: Mapped[str | None] = mapped_column(String(20))
     has_options_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -31,6 +33,7 @@ class Symbol(Base):
 
     __table_args__ = (
         Index("idx_symbols_ticker", "ticker"),
+        Index("idx_symbols_indices", "indices"),
         Index(
             "idx_symbols_active",
             "is_active",

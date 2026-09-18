@@ -285,3 +285,18 @@
   color: var(--color-negative);
   font-size: var(--text-sm);
 }
+
+/* Seviye güç çubuğu (Destek/Direnç tablosu) */
+.strength-track {
+  display: inline-block;
+  width: 70px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-surface-2);
+  overflow: hidden;
+}
+.strength-fill {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+}

@@ -401,3 +401,64 @@ def test_zero_gamma_level_handles_flat_zero_curve(calculation_engine):
     assert z is not None
     # Düz sıfır eğride her grid noktası kesişim sayılır; spot'a en yakını seçilir.
     assert z == pytest.approx(100.0, abs=1.0)
+
+
+# ---------- Destek / Direnç seviyeleri ----------
+def _level_map() -> dict[float, float]:
+    """Spot 100 varsayımıyla: üstte pozitif (direnç), altta negatif (destek)."""
+    return {90.0: -8e6, 95.0: -5e6, 98.0: -1e6, 103.0: 2e6, 105.0: 20e6, 110.0: 9e6}
+
+
+def test_compute_levels_classifies_support_and_resistance(calculation_engine):
+    levels = calculation_engine.compute_levels(_level_map(), spot=100.0)
+    res = [lv for lv in levels if lv.kind == "resistance"]
+    sup = [lv for lv in levels if lv.kind == "support"]
+    assert all(lv.price > 100 for lv in res)
+    assert all(lv.price < 100 for lv in sup)
+    assert len(res) == 3 and len(sup) == 3
+
+
+def test_compute_levels_first_ones_are_walls(calculation_engine):
+    """En güçlü direnç 'Call Wall', en güçlü destek 'Put Wall' etiketlenir."""
+    levels = calculation_engine.compute_levels(_level_map(), spot=100.0)
+    call_wall = next(lv for lv in levels if lv.label == "Call Wall")
+    put_wall = next(lv for lv in levels if lv.label == "Put Wall")
+    assert call_wall.price == 105.0  # en yüksek pozitif GEX
+    assert put_wall.price == 90.0  # en negatif GEX
+
+
+def test_compute_levels_strength_is_normalized(calculation_engine):
+    levels = calculation_engine.compute_levels(_level_map(), spot=100.0)
+    strengths = [lv.strength for lv in levels if lv.kind != "flip"]
+    assert max(strengths) == pytest.approx(1.0)  # en güçlü seviye 1.0
+    assert all(0 <= s <= 1 for s in strengths)
+
+
+def test_compute_levels_includes_gamma_flip(calculation_engine):
+    levels = calculation_engine.compute_levels(_level_map(), spot=100.0, gamma_flip=99.5)
+    flip = next(lv for lv in levels if lv.kind == "flip")
+    assert flip.price == 99.5
+    assert flip.label == "Gamma Flip"
+
+
+def test_compute_levels_sorted_by_price_desc(calculation_engine):
+    levels = calculation_engine.compute_levels(_level_map(), spot=100.0, gamma_flip=99.5)
+    prices = [lv.price for lv in levels]
+    assert prices == sorted(prices, reverse=True)
+
+
+def test_compute_levels_respects_top_n(calculation_engine):
+    levels = calculation_engine.compute_levels(_level_map(), spot=100.0, top_n=1)
+    assert len([lv for lv in levels if lv.kind == "resistance"]) == 1
+    assert len([lv for lv in levels if lv.kind == "support"]) == 1
+
+
+def test_compute_levels_empty_inputs(calculation_engine):
+    assert calculation_engine.compute_levels({}, spot=100.0) == []
+    assert calculation_engine.compute_levels(_level_map(), spot=0) == []
+    assert calculation_engine.compute_levels({100.0: 0.0}, spot=95.0) == []
+
+
+def test_compute_levels_only_resistance_when_no_support(calculation_engine):
+    levels = calculation_engine.compute_levels({105.0: 5e6, 110.0: 3e6}, spot=100.0)
+    assert all(lv.kind == "resistance" for lv in levels)

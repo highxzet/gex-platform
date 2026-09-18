@@ -30,12 +30,38 @@ def _fetch_and_alerts() -> None:
         return
     db = SessionLocal()
     try:
-        fetch_and_calculate_job(db, get_provider(), CalculationEngine())
+        fetch_and_calculate_job(
+            db, get_provider(), CalculationEngine(), max_workers=settings.fetch_max_workers
+        )
         triggered = evaluate_alerts(db)
         if triggered:
             logger.info("%d uyarı tetiklendi", triggered)
     except Exception:  # noqa: BLE001 — zamanlanmış iş sessizce ölmemeli (Bölüm 9.5)
         logger.exception("fetch_and_calculate döngüsü başarısız")
+    finally:
+        db.close()
+
+
+def _scan_universe() -> None:
+    """Geniş evren taraması: yalnızca özet satırı yazar (detay YOK).
+
+    518 sembol × ~1600 opsiyon satırı her döngüde saklanamaz; bu yüzden
+    tarama sembol başına tek bir `gex_summary` satırı üretir (Bölüm 18.5).
+    """
+    if not is_market_open():
+        logger.debug("Piyasa kapalı — evren taraması atlandı")
+        return
+    db = SessionLocal()
+    try:
+        fetch_and_calculate_job(
+            db,
+            get_provider(),
+            CalculationEngine(),
+            detail=False,
+            max_workers=settings.fetch_max_workers,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("evren taraması başarısız")
     finally:
         db.close()
 
@@ -70,6 +96,15 @@ def setup_scheduler() -> BackgroundScheduler:
         max_instances=1,
         coalesce=True,
     )
+    if settings.scan_enabled:
+        scheduler.add_job(
+            _scan_universe,
+            IntervalTrigger(minutes=settings.scan_interval_minutes),
+            id="scan_universe",
+            max_instances=1,
+            coalesce=True,
+        )
+
     scheduler.add_job(
         _cleanup,
         CronTrigger(hour=settings.cleanup_hour_et, minute=0),

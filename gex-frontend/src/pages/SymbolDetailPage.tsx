@@ -3,18 +3,25 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Tabs } from "@/components/Tabs";
 import { RegimeBadge } from "@/components/RegimeBadge";
 import { GexProfileChart } from "@/components/GexProfileChart";
+import { PriceLevelsChart } from "@/components/PriceLevelsChart";
 import { LineChart, type Series } from "@/components/LineChart";
 import { EmptyState, ErrorState, RefreshingDot, Skeleton } from "@/components/States";
-import { useGexProfile, useRawData, useTimeSeries, useWatchlist } from "@/hooks/useApi";
+import { useGexProfile, usePriceLevels, useRawData, useTimeSeries, useWatchlist } from "@/hooks/useApi";
 import { gexShort, money, strike as fmtStrike, timeAgo } from "@/utils/format";
 import "./symbol-detail.css";
 
 const TABS = [
   { value: "gex", label: "GEX Profili" },
+  { value: "levels", label: "Destek / Direnç" },
   { value: "series", label: "Zaman Serisi" },
   { value: "raw", label: "Ham Veri" },
-  { value: "notes", label: "Notlar" },
 ];
+
+const LEVEL_COLOR: Record<string, string> = {
+  resistance: "var(--color-negative)",
+  support: "var(--color-positive)",
+  flip: "var(--color-warning)",
+};
 
 export function SymbolDetailPage() {
   const { ticker } = useParams();
@@ -28,6 +35,10 @@ export function SymbolDetailPage() {
   const { data: profile, isLoading, isFetching, error, refetch } = useGexProfile(active || undefined);
   const { data: series } = useTimeSeries(tab === "series" ? active : undefined, "30d");
   const { data: raw } = useRawData(tab === "raw" ? active : undefined, 1, 50);
+  const { data: priceLevels, isLoading: levelsLoading } = usePriceLevels(
+    tab === "levels" ? active : undefined,
+    90
+  );
 
   const picker = (
     <div className="symbol-picker">
@@ -128,6 +139,74 @@ export function SymbolDetailPage() {
         </section>
       )}
 
+      {tab === "levels" && (
+        <section className="ui-card ui-card--pad">
+          <div className="sd-card-head">
+            <h2 className="ui-card__title">Fiyat ve GEX destek/direnç seviyeleri (90 gün)</h2>
+          </div>
+
+          {levelsLoading && <Skeleton height={440} />}
+
+          {priceLevels && (
+            <>
+              <PriceLevelsChart
+                candles={priceLevels.candles}
+                levels={priceLevels.levels}
+                spotPrice={priceLevels.spot_price}
+              />
+
+              <table className="data-table" style={{ marginTop: "var(--space-5)" }}>
+                <thead>
+                  <tr>
+                    <th>Seviye</th>
+                    <th>Fiyat</th>
+                    <th>Spot'a uzaklık</th>
+                    <th>Güç</th>
+                    <th>Net GEX</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {priceLevels.levels.map((lv, i) => {
+                    const dist = ((lv.price - priceLevels.spot_price) / priceLevels.spot_price) * 100;
+                    const tone = lv.kind === "resistance" ? "neg" : lv.kind === "support" ? "pos" : "";
+                    return (
+                      <tr key={`${lv.kind}-${lv.price}-${i}`}>
+                        <td className={`cell-strong ${tone}`}>{lv.label}</td>
+                        <td className="num cell-strong">{fmtStrike(lv.price)}</td>
+                        <td className={`num ${dist >= 0 ? "pos" : "neg"}`}>
+                          {dist >= 0 ? "+" : ""}{dist.toFixed(1)}%
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <span className="strength-track">
+                            <span
+                              className="strength-fill"
+                              style={{
+                                width: `${Math.round(lv.strength * 100)}%`,
+                                background: LEVEL_COLOR[lv.kind],
+                              }}
+                            />
+                          </span>
+                        </td>
+                        <td className={`num ${lv.net_gex >= 0 ? "pos" : "neg"}`}>
+                          {lv.net_gex ? gexShort(lv.net_gex) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              <p className="muted" style={{ fontSize: "var(--text-xs)", marginTop: "var(--space-4)", lineHeight: 1.6 }}>
+                Spot üstündeki pozitif GEX yığılmaları <strong style={{ color: "var(--color-negative)" }}>direnç</strong>{" "}
+                (dealer yükselişte satar), spot altındaki negatif yığılmalar{" "}
+                <strong style={{ color: "var(--color-positive)" }}>destek</strong> (dealer düşüşte alır) olarak
+                yorumlanır. Çizgi kalınlığı ve çubuk seviyenin gücünü gösterir.
+              </p>
+            </>
+          )}
+        </section>
+      )}
+
       {tab === "series" && (
         <section className="ui-card ui-card--pad">
           <h2 className="ui-card__title" style={{ marginBottom: "var(--space-4)" }}>Net GEX — son 30 gün</h2>
@@ -165,12 +244,6 @@ export function SymbolDetailPage() {
           ) : (
             <div style={{ padding: "var(--space-5)" }}><Skeleton height={200} /></div>
           )}
-        </section>
-      )}
-
-      {tab === "notes" && (
-        <section className="ui-card ui-card--pad placeholder">
-          <span>Notlar Günlük sayfasından yönetiliyor.</span>
         </section>
       )}
     </div>

@@ -196,3 +196,47 @@ def test_market_closed_before_open_and_after_close():
 def test_market_open_at_exact_boundaries():
     assert is_market_open(ET.localize(datetime(2026, 9, 18, 9, 30))) is True
     assert is_market_open(ET.localize(datetime(2026, 9, 18, 16, 0))) is True
+
+
+# ---------- Fiyat geçmişi (destek/direnç grafiği için) ----------
+class _HistTicker(_FakeTicker):
+    def history(self, period=None, interval=None, auto_adjust=False):  # noqa: ARG002
+        idx = pd.to_datetime(["2026-09-16", "2026-09-17", "2026-09-18"])
+        return pd.DataFrame(
+            {
+                "Open": [100.0, 101.0, float("nan")],
+                "High": [102.0, 103.0, 104.0],
+                "Low": [99.0, 100.5, 101.0],
+                "Close": [101.5, 102.5, 103.0],
+                "Volume": [1_000_000, 1_200_000, 900_000],
+            },
+            index=idx,
+        )
+
+
+def test_price_history_returns_candles(monkeypatch):
+    monkeypatch.setattr("app.providers.yfinance_provider.yf.Ticker", _HistTicker)
+    candles = YFinanceProvider().get_price_history("TST", 30)
+    # 3. satırda Open=NaN -> atlanır (Bölüm 4.4 normalizasyonu)
+    assert len(candles) == 2
+    assert candles[0].date == date(2026, 9, 16)
+    assert candles[0].close == 101.5
+    assert candles[0].volume == 1_000_000
+
+
+def test_price_history_empty_dataframe(monkeypatch):
+    class _Empty(_FakeTicker):
+        def history(self, **kwargs):  # noqa: ARG002
+            return pd.DataFrame()
+
+    monkeypatch.setattr("app.providers.yfinance_provider.yf.Ticker", _Empty)
+    assert YFinanceProvider().get_price_history("TST") == []
+
+
+def test_price_history_none_result(monkeypatch):
+    class _NoneHist(_FakeTicker):
+        def history(self, **kwargs):  # noqa: ARG002
+            return None
+
+    monkeypatch.setattr("app.providers.yfinance_provider.yf.Ticker", _NoneHist)
+    assert YFinanceProvider().get_price_history("TST") == []

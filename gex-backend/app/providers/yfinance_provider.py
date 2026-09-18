@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import yfinance as yf
 
-from app.providers.base import MarketDataProvider, OptionChainRow, PriceQuote
+from app.providers.base import Candle, MarketDataProvider, OptionChainRow, PriceQuote
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,31 @@ class YFinanceProvider(MarketDataProvider):
             daily_change_pct=change_pct,
             timestamp=datetime.now(timezone.utc),
         )
+
+    def get_price_history(self, symbol: str, days: int = 90) -> list[Candle]:
+        """Günlük OHLC geçmişi. Boş/eksik satırlar atlanır (Bölüm 4.4)."""
+        period = f"{max(days, 5)}d"
+        df = yf.Ticker(symbol).history(period=period, interval="1d", auto_adjust=False)
+        if df is None or df.empty:
+            logger.warning("%s: fiyat geçmişi boş döndü", symbol)
+            return []
+
+        candles: list[Candle] = []
+        for idx, row in df.iterrows():
+            o, h, l, c = (_clean_float(row.get(k)) for k in ("Open", "High", "Low", "Close"))
+            if None in (o, h, l, c) or c <= 0:
+                continue
+            candles.append(
+                Candle(
+                    date=idx.date(),
+                    open=round(o, 4),
+                    high=round(h, 4),
+                    low=round(l, 4),
+                    close=round(c, 4),
+                    volume=_clean_oi(row.get("Volume")),
+                )
+            )
+        return candles
 
     def get_option_chain(self, symbol: str) -> list[OptionChainRow]:
         ticker = yf.Ticker(symbol)

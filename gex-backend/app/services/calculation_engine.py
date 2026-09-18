@@ -25,6 +25,17 @@ class StrikeGexResult:
 
 
 @dataclass
+class GexLevel:
+    """GEX'ten türetilmiş destek/direnç seviyesi."""
+
+    price: float
+    kind: str  # "resistance" | "support" | "flip"
+    label: str
+    strength: float  # 0..1 — en güçlü seviyeye göre normalize
+    net_gex: float
+
+
+@dataclass
 class SymbolGexSummary:
     symbol: str
     total_net_gex: float
@@ -313,3 +324,81 @@ class CalculationEngine:
         if not crossings:
             return None
         return min(crossings, key=lambda c: abs(c - spot))
+
+    # ---- Destek / Direnç seviyeleri ----
+    def compute_levels(
+        self,
+        strike_gex_map: dict[float, float],
+        spot: float,
+        gamma_flip: float | None = None,
+        top_n: int = 3,
+    ) -> list[GexLevel]:
+        """GEX yoğunlaşmalarından destek/direnç seviyeleri üretir.
+
+        Mantık (endüstri yorumu):
+          * Spot ÜSTÜNDE pozitif net GEX yığılması → DİRENÇ. Dealer'lar long gamma
+            olduğu için yükselişte satış yapar, fiyatı bastırır (call wall etkisi).
+          * Spot ALTINDA negatif net GEX yığılması → DESTEK. Dealer'lar düşüşte
+            alım yaparak fiyatı destekler (put wall etkisi).
+          * Gamma flip → rejim sınırı; üstünde volatilite sönümlü, altında genişleyici.
+
+        Güç (strength), en büyük |net GEX|'e göre 0..1 aralığına normalize edilir.
+        """
+        if not strike_gex_map or spot <= 0:
+            return []
+
+        max_abs = max((abs(v) for v in strike_gex_map.values()), default=0.0)
+        if max_abs <= 0:
+            return []
+
+        resistances = sorted(
+            ((k, v) for k, v in strike_gex_map.items() if k > spot and v > 0),
+            key=lambda kv: kv[1],
+            reverse=True,
+        )[:top_n]
+        supports = sorted(
+            ((k, v) for k, v in strike_gex_map.items() if k < spot and v < 0),
+            key=lambda kv: kv[1],
+        )[:top_n]
+
+        levels: list[GexLevel] = []
+
+        # Seçim GÜCE göre yapılır (en anlamlı yığılmalar), ama sıra numarası
+        # FİYATA YAKINLIĞA göre verilir — trading konvansiyonunda "1. direnç"
+        # spot'a en yakın olandır. En güçlü olan ayrıca Call/Put Wall etiketlenir.
+        strongest_res = resistances[0][0] if resistances else None
+        for rank, (strike, net) in enumerate(sorted(resistances, key=lambda kv: kv[0]), start=1):
+            levels.append(
+                GexLevel(
+                    price=strike,
+                    kind="resistance",
+                    label="Call Wall" if strike == strongest_res else f"{rank}. Direnç",
+                    strength=abs(net) / max_abs,
+                    net_gex=net,
+                )
+            )
+
+        strongest_sup = supports[0][0] if supports else None
+        for rank, (strike, net) in enumerate(sorted(supports, key=lambda kv: -kv[0]), start=1):
+            levels.append(
+                GexLevel(
+                    price=strike,
+                    kind="support",
+                    label="Put Wall" if strike == strongest_sup else f"{rank}. Destek",
+                    strength=abs(net) / max_abs,
+                    net_gex=net,
+                )
+            )
+        if gamma_flip is not None:
+            levels.append(
+                GexLevel(
+                    price=gamma_flip,
+                    kind="flip",
+                    label="Gamma Flip",
+                    strength=1.0,
+                    net_gex=0.0,
+                )
+            )
+
+        levels.sort(key=lambda lv: lv.price, reverse=True)
+        return levels

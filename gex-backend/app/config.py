@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # --- Zamanlanmış İşler ---
     enable_scheduler: bool = False  # testlerde/CI'da kapalı; üretimde true
     fetch_interval_minutes: int = 2
+    # Geniş evren taraması (yalnızca özet satırı yazar) — Bölüm 18.2/18.5
+    scan_interval_minutes: int = 30
+    scan_enabled: bool = False
+    # Paralel veri çekme; çok yükseltmek sağlayıcıdan engellenmeye (429) yol açar
+    fetch_max_workers: int = 6
     alert_cooldown_minutes: int = 30
     cleanup_hour_et: int = 3
 

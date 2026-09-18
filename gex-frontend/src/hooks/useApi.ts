@@ -8,6 +8,7 @@ import type {
   GexProfileResponse,
   JournalListResponse,
   NotificationListResponse,
+  PriceLevelsResponse,
   RawDataResponse,
   SymbolSearchResponse,
   TimeSeriesResponse,
@@ -142,5 +143,14 @@ export function useRemoveFromWatchlist() {
       qc.invalidateQueries({ queryKey: ["watchlist"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
+  });
+}
+
+export function usePriceLevels(ticker: string | undefined, days = 90) {
+  return useQuery({
+    queryKey: ["price-levels", ticker, days],
+    queryFn: () => apiClient.get<PriceLevelsResponse>(`/api/symbols/${ticker}/price-levels?days=${days}`),
+    enabled: Boolean(ticker),
+    staleTime: 120_000,
   });
 }

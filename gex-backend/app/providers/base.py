@@ -40,6 +40,18 @@ class PriceQuote:
     timestamp: datetime
 
 
+@dataclass
+class Candle:
+    """Tek bir günlük OHLC mumu (fiyat grafiği için)."""
+
+    date: date
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+
+
 class MarketDataProvider(ABC):
     """Tüm veri sağlayıcılarının uyması gereken sözleşme."""
 
@@ -50,6 +62,10 @@ class MarketDataProvider(ABC):
     @abstractmethod
     def get_price(self, symbol: str) -> PriceQuote:
         """Sembolün güncel spot fiyatı ve günlük değişimi."""
+
+    @abstractmethod
+    def get_price_history(self, symbol: str, days: int = 90) -> list[Candle]:
+        """Son N günün günlük OHLC verisi (destek/direnç grafiği için)."""
 
     @abstractmethod
     def get_provider_name(self) -> str:

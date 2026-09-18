@@ -81,3 +81,30 @@ class RawDataResponse(BaseModel):
     page_size: int
     total_rows: int
     rows: list[RawDataRow]
+
+
+class CandleOut(BaseModel):
+    date: date
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+
+
+class LevelOut(BaseModel):
+    price: float
+    kind: str  # resistance | support | flip
+    label: str
+    strength: float
+    net_gex: float
+
+
+class PriceLevelsResponse(BaseModel):
+    """Fiyat grafiği + GEX'ten türetilmiş destek/direnç seviyeleri."""
+
+    symbol: str
+    spot_price: float
+    computed_at: datetime
+    candles: list[CandleOut]
+    levels: list[LevelOut]
