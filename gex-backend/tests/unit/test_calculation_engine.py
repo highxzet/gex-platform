@@ -250,3 +250,65 @@ def test_engine_uses_settings_defaults_when_not_overridden():
     assert engine.gex_move_pct == pytest.approx(0.01)
     assert engine.neutral_band_pct == pytest.approx(0.002)
     assert engine.risk_free_rate == pytest.approx(0.05)
+
+
+# ---------- Gamma flip seçimi (gerçek veri gürültüsüne dayanıklılık) ----------
+def test_find_all_gamma_flips_returns_every_crossing(calculation_engine):
+    """Kümülatif birden fazla kez sıfırı kesebilir; hepsi bulunmalı."""
+    strikes = [100, 110, 120, 130]
+    cumulative = [-10.0, 10.0, -10.0, 10.0]
+    flips = calculation_engine.find_all_gamma_flips(strikes, cumulative)
+    assert len(flips) == 3
+    assert flips == pytest.approx([105.0, 115.0, 125.0])
+
+
+def test_find_all_gamma_flips_empty_when_no_crossing(calculation_engine):
+    assert calculation_engine.find_all_gamma_flips([100, 110], [5.0, 10.0]) == []
+
+
+def test_select_gamma_flip_picks_nearest_to_spot(calculation_engine):
+    """Derin OTM gürültüsü (105) değil, spot'a yakın gerçek geçiş (125) seçilmeli."""
+    strikes = [100, 110, 120, 130]
+    cumulative = [-10.0, 10.0, -10.0, 10.0]  # kesişimler: 105, 115, 125
+    assert calculation_engine.select_gamma_flip(strikes, cumulative, spot=124.0) == pytest.approx(125.0)
+
+
+def test_select_gamma_flip_none_when_no_crossing(calculation_engine):
+    assert calculation_engine.select_gamma_flip([100, 110], [5.0, 10.0], spot=105) is None
+
+
+def test_select_gamma_flip_first_mode_matches_spec(calculation_engine, monkeypatch):
+    """GAMMA_FLIP_SELECTION='first' -> Bölüm 3.7'nin birebir davranışı."""
+    from app.services import calculation_engine as ce_module
+
+    monkeypatch.setattr(ce_module.settings, "gamma_flip_selection", "first")
+    strikes = [100, 110, 120, 130]
+    cumulative = [-10.0, 10.0, -10.0, 10.0]
+    # spot 124'e rağmen İLK kesişim (105) dönmeli
+    assert calculation_engine.select_gamma_flip(strikes, cumulative, spot=124.0) == pytest.approx(105.0)
+
+
+def test_calculate_symbol_gex_uses_nearest_spot_flip(calculation_engine):
+    """Uçtan uca: gürültülü düşük strike'lar flip'i kaçırtmamalı."""
+    rows = [
+        # gürültü bölgesi: çok küçük gamma/OI
+        {"strike": 50, "expiry": EXPIRY, "call_oi": 1, "put_oi": 2,
+         "call_gamma": 0.001, "put_gamma": 0.001, "call_iv": None, "put_iv": None, "expiry_years": 0.1},
+        {"strike": 60, "expiry": EXPIRY, "call_oi": 3, "put_oi": 1,
+         "call_gamma": 0.001, "put_gamma": 0.001, "call_iv": None, "put_iv": None, "expiry_years": 0.1},
+        # gerçek aksiyon: spot çevresi
+        {"strike": 100, "expiry": EXPIRY, "call_oi": 100, "put_oi": 5000,
+         "call_gamma": 0.05, "put_gamma": 0.05, "call_iv": None, "put_iv": None, "expiry_years": 0.1},
+        {"strike": 110, "expiry": EXPIRY, "call_oi": 8000, "put_oi": 100,
+         "call_gamma": 0.05, "put_gamma": 0.05, "call_iv": None, "put_iv": None, "expiry_years": 0.1},
+    ]
+    summary = calculation_engine.calculate_symbol_gex("TEST", spot=105.0, option_rows=rows)
+    assert summary.gamma_flip_strike is not None
+    # 50-60 bölgesindeki gürültü değil, 100-110 arasındaki gerçek geçiş seçilmeli
+    assert 100 <= summary.gamma_flip_strike <= 110
+
+
+def test_find_all_gamma_flips_exact_zero_is_a_crossing(calculation_engine):
+    """Kümülatif tam sıfırsa o strike doğrudan kesişim sayılır."""
+    flips = calculation_engine.find_all_gamma_flips([95, 100, 105], [0.0, 50.0, 90.0])
+    assert flips == [95]

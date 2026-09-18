@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     gex_move_pct: float = 0.01
     neutral_band_pct: float = 0.002
     dealer_sign_convention: str = "standard"
+    # Gamma flip seçimi: "nearest_spot" (gürültüye dayanıklı, varsayılan) | "first" (Bölüm 3.7 birebir)
+    gamma_flip_selection: str = "nearest_spot"
 
     # --- Zamanlanmış İşler ---
     fetch_interval_minutes: int = 2

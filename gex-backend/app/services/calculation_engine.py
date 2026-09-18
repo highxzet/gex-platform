@@ -115,6 +115,46 @@ class CalculationEngine:
                 return prev_strike + ratio * (curr_strike - prev_strike)
         return None
 
+    def find_all_gamma_flips(
+        self, strikes_sorted: list[float], cumulative_gex: list[float]
+    ) -> list[float]:
+        """Kümülatif net GEX'in sıfırı kestiği TÜM noktalar (interpolasyonlu).
+
+        Gerçek veride derin OTM strike'larda gamma ~ 0 olduğundan kümülatif sıfır
+        etrafında salınır ve birden fazla (çoğu anlamsız) kesişim oluşur.
+        """
+        flips: list[float] = []
+        for i in range(1, len(cumulative_gex)):
+            prev_gex = cumulative_gex[i - 1]
+            curr_gex = cumulative_gex[i]
+            if prev_gex == 0:
+                flips.append(strikes_sorted[i - 1])
+                continue
+            if (prev_gex < 0 < curr_gex) or (prev_gex > 0 > curr_gex):
+                prev_strike = strikes_sorted[i - 1]
+                curr_strike = strikes_sorted[i]
+                ratio = abs(prev_gex) / (abs(prev_gex) + abs(curr_gex))
+                flips.append(prev_strike + ratio * (curr_strike - prev_strike))
+        return flips
+
+    def select_gamma_flip(
+        self, strikes_sorted: list[float], cumulative_gex: list[float], spot: float
+    ) -> float | None:
+        """Anlamlı gamma flip noktasını seçer (bkz. GAMMA_FLIP_SELECTION).
+
+        - "nearest_spot" (varsayılan): tüm kesişimler arasından spot'a en yakın olan.
+          Gerekçe: derin OTM gürültüsü ilk kesişimi anlamsız bir strike'a kaydırır;
+          spec'in Faz 2 kabul kriteri ise flip'in spot'a yakın olmasını bekler.
+        - "first": Bölüm 3.7'nin birebir davranışı (ilk işaret değişimi).
+        """
+        if settings.gamma_flip_selection == "first":
+            return self.find_gamma_flip(strikes_sorted, cumulative_gex)
+
+        flips = self.find_all_gamma_flips(strikes_sorted, cumulative_gex)
+        if not flips:
+            return None
+        return min(flips, key=lambda f: abs(f - spot))
+
     # ---- Bölüm 3.8 — call / put wall ----
     def find_walls(
         self, strike_gex_map: dict[float, float]
@@ -176,7 +216,7 @@ class CalculationEngine:
             running += strike_gex_map[s]
             cumulative.append(running)
 
-        gamma_flip = self.find_gamma_flip(sorted_strikes, cumulative)
+        gamma_flip = self.select_gamma_flip(sorted_strikes, cumulative, spot)
         call_wall, put_wall = self.find_walls(strike_gex_map)
         regime = self.determine_regime(spot, gamma_flip)
 
