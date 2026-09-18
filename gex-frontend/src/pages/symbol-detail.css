@@ -91,3 +91,10 @@
 .sd-notes:focus {
   border-color: var(--color-accent);
 }
+
+.sd-picker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}

@@ -32,6 +32,20 @@ def _clean_float(value: object) -> float | None:
     return f
 
 
+# Gerçekçi üst sınır: %500 IV. Üstü, likit olmayan/bayat kotasyonlardan gelen
+# çöp veridir (yfinance derin OTM kontratlarda %3000+ IV döndürebiliyor).
+# Bölüm 4.4: geçersiz IV -> gamma hesaplanamaz, satır hesaplama dışı bırakılır.
+MAX_PLAUSIBLE_IV = 5.0
+
+
+def _clean_iv(value: object) -> float | None:
+    """IV'yi doğrular; 0/negatif veya mantıksız büyük değerleri None yapar."""
+    iv = _clean_float(value)
+    if iv is None or iv <= 0 or iv > MAX_PLAUSIBLE_IV:
+        return None
+    return iv
+
+
 def _clean_oi(value: object) -> int:
     """OI eksik/NaN ise 0 (0 OI = 0 GEX katkısı, matematiksel olarak tutarlı)."""
     f = _clean_float(value)
@@ -129,8 +143,8 @@ class YFinanceProvider(MarketDataProvider):
                         # yfinance gamma vermez → Yol B (Black-Scholes)
                         call_gamma=None,
                         put_gamma=None,
-                        call_iv=_clean_float(call_row["impliedVolatility"]) if call_row is not None else None,
-                        put_iv=_clean_float(put_row["impliedVolatility"]) if put_row is not None else None,
+                        call_iv=_clean_iv(call_row["impliedVolatility"]) if call_row is not None else None,
+                        put_iv=_clean_iv(put_row["impliedVolatility"]) if put_row is not None else None,
                     )
                 )
 

@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Tabs } from "@/components/Tabs";
+import { Segment } from "@/components/Segment";
 import { RegimeBadge } from "@/components/RegimeBadge";
 import { GexProfileChart } from "@/components/GexProfileChart";
 import { PriceLevelsChart } from "@/components/PriceLevelsChart";
+import { SymbolSearchBox } from "@/components/SymbolSearchBox";
 import { LineChart, type Series } from "@/components/LineChart";
 import { EmptyState, ErrorState, RefreshingDot, Skeleton } from "@/components/States";
 import { useGexProfile, usePriceLevels, useRawData, useTimeSeries, useWatchlist } from "@/hooks/useApi";
@@ -23,34 +25,38 @@ const LEVEL_COLOR: Record<string, string> = {
   flip: "var(--color-warning)",
 };
 
+type PriceRange = "30" | "90" | "180" | "365";
+type SeriesRange = "7d" | "30d" | "90d";
+type Band = "0.05" | "0.10" | "0.15" | "0.25";
+
 export function SymbolDetailPage() {
   const { ticker } = useParams();
   const navigate = useNavigate();
   const [tab, setTab] = useState("gex");
+  const [priceRange, setPriceRange] = useState<PriceRange>("90");
+  const [seriesRange, setSeriesRange] = useState<SeriesRange>("30d");
+  const [band, setBand] = useState<Band>("0.15");
 
   const { data: watchlist } = useWatchlist();
-  const symbols = watchlist?.items.map((i) => i.symbol) ?? [];
-  const active = (ticker ?? symbols[0] ?? "").toUpperCase();
+  const quickPicks = watchlist?.items.map((i) => i.symbol) ?? [];
+  const active = (ticker ?? quickPicks[0] ?? "").toUpperCase();
 
   const { data: profile, isLoading, isFetching, error, refetch } = useGexProfile(active || undefined);
-  const { data: series } = useTimeSeries(tab === "series" ? active : undefined, "30d");
+  const { data: series } = useTimeSeries(tab === "series" ? active : undefined, seriesRange);
   const { data: raw } = useRawData(tab === "raw" ? active : undefined, 1, 50);
   const { data: priceLevels, isLoading: levelsLoading } = usePriceLevels(
     tab === "levels" ? active : undefined,
-    90
+    Number(priceRange)
   );
 
   const picker = (
-    <div className="symbol-picker">
-      {symbols.map((s) => (
-        <button
-          key={s}
-          className={`symbol-chip${s === active ? " symbol-chip--active" : ""}`}
-          onClick={() => navigate(`/symbols/${s}`)}
-        >
-          {s}
-        </button>
-      ))}
+    <div className="sd-picker-row">
+      <SymbolSearchBox
+        value={active}
+        quickPicks={quickPicks}
+        onSelect={(s) => navigate(`/symbols/${s}`)}
+        placeholder="Sembol ara (518 sembol)…"
+      />
     </div>
   );
 
@@ -58,7 +64,8 @@ export function SymbolDetailPage() {
     return (
       <div>
         <header className="page-header"><h1 className="page-title">Hisse Analizi</h1></header>
-        <EmptyState title="Önce izleme listenize sembol ekleyin" />
+        {picker}
+        <EmptyState title="Bir sembol arayın veya izleme listenize ekleyin" />
       </div>
     );
   }
@@ -91,6 +98,13 @@ export function SymbolDetailPage() {
         color: "var(--color-accent)",
         points: series.series.map((p, i) => ({ x: i, y: p.total_net_gex })),
       }]
+    : [];
+
+  const seriesTicks = series && series.series.length
+    ? [0, Math.floor(series.series.length / 2), series.series.length - 1].map((i) => ({
+        x: i,
+        label: series.series[i]?.date.slice(5, 10) ?? "",
+      }))
     : [];
 
   return (
@@ -128,6 +142,16 @@ export function SymbolDetailPage() {
         <section className="ui-card ui-card--pad">
           <div className="sd-card-head">
             <h2 className="ui-card__title">GEX Profili (strike bazında net gamma exposure)</h2>
+            <Segment
+              value={band}
+              onChange={setBand}
+              options={[
+                { value: "0.05", label: "±%5" },
+                { value: "0.10", label: "±%10" },
+                { value: "0.15", label: "±%15" },
+                { value: "0.25", label: "±%25" },
+              ]}
+            />
           </div>
           <GexProfileChart
             strikes={profile.strikes}
@@ -135,6 +159,7 @@ export function SymbolDetailPage() {
             gammaFlipStrike={profile.gamma_flip_strike}
             callWallStrike={profile.call_wall_strike}
             putWallStrike={profile.put_wall_strike}
+            bandPct={Number(band)}
           />
         </section>
       )}
@@ -142,7 +167,17 @@ export function SymbolDetailPage() {
       {tab === "levels" && (
         <section className="ui-card ui-card--pad">
           <div className="sd-card-head">
-            <h2 className="ui-card__title">Fiyat ve GEX destek/direnç seviyeleri (90 gün)</h2>
+            <h2 className="ui-card__title">Fiyat ve GEX destek/direnç seviyeleri</h2>
+            <Segment
+              value={priceRange}
+              onChange={setPriceRange}
+              options={[
+                { value: "30", label: "1A" },
+                { value: "90", label: "3A" },
+                { value: "180", label: "6A" },
+                { value: "365", label: "1Y" },
+              ]}
+            />
           </div>
 
           {levelsLoading && <Skeleton height={440} />}
@@ -158,11 +193,7 @@ export function SymbolDetailPage() {
               <table className="data-table" style={{ marginTop: "var(--space-5)" }}>
                 <thead>
                   <tr>
-                    <th>Seviye</th>
-                    <th>Fiyat</th>
-                    <th>Spot'a uzaklık</th>
-                    <th>Güç</th>
-                    <th>Net GEX</th>
+                    <th>Seviye</th><th>Fiyat</th><th>Spot'a uzaklık</th><th>Güç</th><th>Net GEX</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -180,10 +211,7 @@ export function SymbolDetailPage() {
                           <span className="strength-track">
                             <span
                               className="strength-fill"
-                              style={{
-                                width: `${Math.round(lv.strength * 100)}%`,
-                                background: LEVEL_COLOR[lv.kind],
-                              }}
+                              style={{ width: `${Math.round(lv.strength * 100)}%`, background: LEVEL_COLOR[lv.kind] }}
                             />
                           </span>
                         </td>
@@ -209,11 +237,32 @@ export function SymbolDetailPage() {
 
       {tab === "series" && (
         <section className="ui-card ui-card--pad">
-          <h2 className="ui-card__title" style={{ marginBottom: "var(--space-4)" }}>Net GEX — son 30 gün</h2>
-          {seriesData.length && series && series.series.length > 1 ? (
-            <LineChart series={seriesData} height={300} area zeroLine yFormat={(v) => gexShort(v)} />
+          <div className="sd-card-head">
+            <h2 className="ui-card__title">Net GEX zaman serisi</h2>
+            <Segment
+              value={seriesRange}
+              onChange={setSeriesRange}
+              options={[
+                { value: "7d", label: "7G" },
+                { value: "30d", label: "30G" },
+                { value: "90d", label: "90G" },
+              ]}
+            />
+          </div>
+          {series && series.series.length > 1 ? (
+            <LineChart
+              series={seriesData}
+              height={300}
+              area
+              zeroLine
+              yFormat={(v) => gexShort(v)}
+              xTickLabels={seriesTicks}
+            />
           ) : (
-            <p className="muted">Zaman serisi için yeterli veri yok — veri toplandıkça dolacak.</p>
+            <p className="muted">
+              Zaman serisi için en az 2 ölçüm gerekiyor ({series?.series.length ?? 0} kayıt var) —
+              veri toplama işi çalıştıkça dolacak.
+            </p>
           )}
         </section>
       )}

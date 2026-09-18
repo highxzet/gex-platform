@@ -109,21 +109,11 @@ def fetch_and_calculate_job(
 
     succeeded = failed = 0
 
-    if max_workers > 1:
-        results = []
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = [pool.submit(fetch_one, s) for s in symbols]
-            for fut in as_completed(futures):
-                results.append(fut.result())
-    else:
-        results = [fetch_one(s) for s in symbols]
-
-    # --- DB yazma: TEK THREAD ---
-    for symbol, price, chain, error in results:
+    def persist_one(symbol: Symbol, price, chain, error) -> bool:
+        """Tek sembolü kaydeder. ANA THREAD'den çağrılır."""
         if error is not None:
-            failed += 1
             logger.warning("%s için veri alınamadı: %s", symbol.ticker, error)
-            continue
+            return False
         try:
             if detail:
                 persist_raw_data(db, symbol, price, chain, provider_name)
@@ -132,11 +122,26 @@ def fetch_and_calculate_job(
             summary = engine.calculate_symbol_gex(symbol.ticker, price.spot_price, rows)
             persist_gex_results(db, symbol.id, summary, run.id, detail=detail)
             db.commit()
-            succeeded += 1
+            return True
         except Exception as e:  # noqa: BLE001
             db.rollback()
-            failed += 1
             logger.error("%s için hesaplama/kayıt başarısız: %s", symbol.ticker, e)
+            return False
+
+    if max_workers > 1:
+        # Sonuçlar geldikçe AKIŞ HALİNDE yazılır; hepsi belleğe toplanmaz
+        # (518 sembol × ~1600 satır belleğe sığmaz).
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(fetch_one, s) for s in symbols]
+            for fut in as_completed(futures):
+                ok = persist_one(*fut.result())
+                succeeded += ok
+                failed += not ok
+    else:
+        for s in symbols:
+            ok = persist_one(*fetch_one(s))
+            succeeded += ok
+            failed += not ok
 
     run.finished_at = datetime.now(timezone.utc)
     run.symbols_succeeded = succeeded

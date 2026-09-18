@@ -31,8 +31,9 @@ class OptionChainRaw(Base):
     put_oi: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     call_gamma: Mapped[Decimal | None] = mapped_column(Numeric(12, 8))
     put_gamma: Mapped[Decimal | None] = mapped_column(Numeric(12, 8))
-    call_iv: Mapped[Decimal | None] = mapped_column(Numeric(8, 6))
-    put_iv: Mapped[Decimal | None] = mapped_column(Numeric(8, 6))
+    # NUMERIC(12,6): sağlayıcıdan gelen aşırı IV değerleri taşmaya yol açmasın
+    call_iv: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
+    put_iv: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

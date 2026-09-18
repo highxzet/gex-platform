@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { LineChart, type Series } from "@/components/LineChart";
 import { Segment } from "@/components/Segment";
+import { SymbolSearchBox } from "@/components/SymbolSearchBox";
 import { EmptyState, ErrorState, Skeleton } from "@/components/States";
 import { useTimeSeries, useWatchlist } from "@/hooks/useApi";
 import { gexShort, pct } from "@/utils/format";
@@ -46,12 +47,8 @@ export function HistoryPage() {
         />
       </header>
 
-      <div className="symbol-picker" style={{ marginBottom: "var(--space-6)" }}>
-        {symbols.map((s) => (
-          <button key={s} className={`symbol-chip${s === active ? " symbol-chip--active" : ""}`} onClick={() => setSymbol(s)}>
-            {s}
-          </button>
-        ))}
+      <div className="sd-picker-row">
+        <SymbolSearchBox value={active} quickPicks={symbols} onSelect={setSymbol} />
       </div>
 
       {!active && <EmptyState title="Önce izleme listenize sembol ekleyin" />}
