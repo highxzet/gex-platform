@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -42,6 +43,26 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": {"code": exc.code, "message": exc.message}},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Pydantic doğrulama hatalarını da standart zarfa çevirir (Bölüm 7.1).
+
+    FastAPI varsayılanı {"detail": [...]} döner; frontend'in hata-koddan-mesaja
+    tablosu (Bölüm 10.6) bunu tanımaz.
+    """
+    first = exc.errors()[0] if exc.errors() else {}
+    field = ".".join(str(p) for p in first.get("loc", []) if p != "body")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": f"Geçersiz alan: {field}" if field else "Geçersiz istek.",
+            }
+        },
     )
 
 

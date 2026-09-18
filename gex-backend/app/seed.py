@@ -27,7 +27,7 @@ BANK_SYMBOLS: list[tuple[str, str, str]] = [
     ("PNC", "PNC Financial Services Group", "Bankacılık"),
 ]
 
-DEFAULT_USER_EMAIL = "kurucu@gex.local"
+DEFAULT_USER_EMAIL = "kurucu@gexplatform.com"
 DEFAULT_USER_PASSWORD = "gexdev2026"  # yalnızca yerel geliştirme
 
 
