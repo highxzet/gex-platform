@@ -6,6 +6,7 @@ Build Spec Bölüm 6, 14.2, 16.6. Faz 0 kabul kriteri: `/health` endpoint'i
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -22,7 +23,21 @@ from app.routers import all_routers
 setup_logging()
 logger = logging.getLogger(__name__)
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Zamanlanmış işleri başlat/durdur (Bölüm 9.3). ENABLE_SCHEDULER ile kontrol edilir."""
+    scheduler = None
+    if settings.enable_scheduler:
+        from app.jobs.scheduler import setup_scheduler
+
+        scheduler = setup_scheduler()
+    yield
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="GEX Analiz Platformu API",
     version="0.1.0",
     description="Banka hisseleri için Net Gamma Exposure (GEX) hesaplama ve izleme platformu.",

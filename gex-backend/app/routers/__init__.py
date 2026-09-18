@@ -23,7 +23,6 @@ all_routers = [
     symbols.router,
     watchlist.router,
     data_status.router,
-    # --- Faz 10 kapsamı (henüz stub) ---
     alerts.router,
     notifications.router,
     journal.router,

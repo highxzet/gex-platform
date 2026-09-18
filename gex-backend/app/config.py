@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     gamma_flip_method: str = "zero_gamma"
 
     # --- Zamanlanmış İşler ---
+    enable_scheduler: bool = False  # testlerde/CI'da kapalı; üretimde true
     fetch_interval_minutes: int = 2
     alert_cooldown_minutes: int = 30
     cleanup_hour_et: int = 3
