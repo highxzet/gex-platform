@@ -12,6 +12,7 @@ from app.routers import (
     data_status,
     journal,
     notifications,
+    pine,
     settings,
     symbols,
     watchlist,
@@ -26,5 +27,6 @@ all_routers = [
     alerts.router,
     notifications.router,
     journal.router,
+    pine.router,
     settings.router,
 ]

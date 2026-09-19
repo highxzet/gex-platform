@@ -9,6 +9,7 @@ import type {
   JournalListResponse,
   LevelBacktestResponse,
   NotificationListResponse,
+  PineScriptResponse,
   PriceLevelsResponse,
   RawDataResponse,
   SymbolSearchResponse,
@@ -164,6 +165,16 @@ export function useLevelBacktest(ticker: string | undefined, days = 365, forward
         `/api/symbols/${ticker}/level-backtest?days=${days}&forward_days=${forwardDays}`
       ),
     enabled: Boolean(ticker),
+    staleTime: 300_000,
+  });
+}
+
+export function usePineScript(scope: "watchlist" | string, enabled = false) {
+  const path = scope === "watchlist" ? "/api/pine/watchlist" : `/api/pine/symbol/${scope}`;
+  return useQuery({
+    queryKey: ["pine", scope],
+    queryFn: () => apiClient.get<PineScriptResponse>(path),
+    enabled,
     staleTime: 300_000,
   });
 }

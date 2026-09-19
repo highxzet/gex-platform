@@ -134,3 +134,12 @@ class LevelBacktestResponse(BaseModel):
     baseline_round: float | None
     gex_hold_rate: float | None
     verdict: str
+
+
+class PineScriptResponse(BaseModel):
+    """TradingView Pine Script kaynağı (seviyeler gömülü)."""
+
+    script: str
+    symbols: list[str]
+    skipped: list[str]
+    line_count: int

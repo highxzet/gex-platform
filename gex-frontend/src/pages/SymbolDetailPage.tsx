@@ -6,6 +6,7 @@ import { RegimeBadge } from "@/components/RegimeBadge";
 import { GexProfileChart } from "@/components/GexProfileChart";
 import { TradingViewPriceChart } from "@/components/TradingViewPriceChart";
 import { SymbolSearchBox } from "@/components/SymbolSearchBox";
+import { PineExport } from "@/components/PineExport";
 import { LineChart, type Series } from "@/components/LineChart";
 import { EmptyState, ErrorState, RefreshingDot, Skeleton } from "@/components/States";
 import { useGexProfile, usePriceLevels, useRawData, useTimeSeries, useWatchlist } from "@/hooks/useApi";
@@ -234,6 +235,8 @@ export function SymbolDetailPage() {
           )}
         </section>
       )}
+
+      {tab === "levels" && <PineExport scope={active} />}
 
       {tab === "series" && (
         <section className="ui-card ui-card--pad">

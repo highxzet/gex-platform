@@ -237,3 +237,11 @@ export interface LevelBacktestResponse {
   gex_hold_rate: number | null;
   verdict: string;
 }
+
+// ---------- Pine Script dışa aktarım ----------
+export interface PineScriptResponse {
+  script: string;
+  symbols: string[];
+  skipped: string[];
+  line_count: number;
+}
