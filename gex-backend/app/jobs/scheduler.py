@@ -15,6 +15,7 @@ from app.config import settings
 from app.core.market_hours import is_market_open
 from app.database import SessionLocal
 from app.jobs.cleanup_job import cleanup_job
+from app.jobs.eod_snapshot_job import eod_snapshot_job
 from app.jobs.fetch_and_calculate_job import fetch_and_calculate_job
 from app.jobs.healthcheck_job import data_source_healthcheck_job
 from app.providers import get_provider
@@ -66,6 +67,21 @@ def _scan_universe() -> None:
         db.close()
 
 
+def _eod_snapshot() -> None:
+    """Kapanış sonrası günlük anlık görüntü.
+
+    Piyasa saati kontrolü YAPMAZ — zaten kapanıştan sonra çalışacak şekilde
+    zamanlanmıştır ve hafta sonu çalışsa bile o günün son verisini kaydeder.
+    """
+    db = SessionLocal()
+    try:
+        eod_snapshot_job(db, get_provider(), CalculationEngine())
+    except Exception:  # noqa: BLE001
+        logger.exception("eod_snapshot_job başarısız")
+    finally:
+        db.close()
+
+
 def _cleanup() -> None:
     db = SessionLocal()
     try:
@@ -103,6 +119,14 @@ def setup_scheduler() -> BackgroundScheduler:
             id="scan_universe",
             max_instances=1,
             coalesce=True,
+        )
+
+    if settings.eod_snapshot_enabled:
+        scheduler.add_job(
+            _eod_snapshot,
+            CronTrigger(day_of_week="mon-fri", hour=settings.eod_snapshot_hour_et, minute=15),
+            id="eod_snapshot",
+            max_instances=1,
         )
 
     scheduler.add_job(

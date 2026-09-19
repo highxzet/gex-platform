@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # Geniş evren taraması (yalnızca özet satırı yazar) — Bölüm 18.2/18.5
     scan_interval_minutes: int = 30
     scan_enabled: bool = False
+    # Günlük kapanış anlık görüntüsü — ileriye dönük edge doğrulama veri seti
+    eod_snapshot_enabled: bool = True
+    eod_snapshot_hour_et: int = 17  # kapanıştan (16:00 ET) sonra
     # Paralel veri çekme; çok yükseltmek sağlayıcıdan engellenmeye (429) yol açar
     fetch_max_workers: int = 6
     alert_cooldown_minutes: int = 30

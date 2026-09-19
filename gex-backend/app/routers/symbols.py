@@ -13,11 +13,18 @@ from app.repositories import symbol_repository as sym_repo
 from app.repositories import watchlist_repository as wl_repo
 from app.providers import get_provider
 from app.services.calculation_engine import CalculationEngine
+from app.services.level_backtest_service import (
+    _round_number_baseline,
+    _touches_and_holds,
+    analyze_levels,
+)
 from app.schemas.gex import (
     GexProfileResponse,
     GexStrikePoint,
     CandleOut,
     LevelOut,
+    LevelBacktestResponse,
+    LevelStatOut,
     PriceLevelsResponse,
     RawDataResponse,
     RawDataRow,
@@ -188,4 +195,67 @@ def get_price_levels(
             LevelOut(price=lv.price, kind=lv.kind, label=lv.label, strength=lv.strength, net_gex=lv.net_gex)
             for lv in levels
         ],
+    )
+
+
+@router.get("/{ticker}/level-backtest", response_model=LevelBacktestResponse)
+def get_level_backtest(
+    ticker: str,
+    days: int = Query(365, ge=60, le=1825),
+    forward_days: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> LevelBacktestResponse:
+    """GEX seviyelerinin tarihsel olarak 'tutup tutmadığını' iki kontrol grubuyla ölçer.
+
+    DÜRÜSTLÜK: bugünkü seviyeler geçmişe uygulanır (GEX geçmişi yok), bu yüzden
+    döngüsellik riski taşır. Kesin yargı EOD anlık görüntüleri biriktikten sonra.
+    """
+    symbol = _get_symbol_or_404(db, ticker)
+    summary = gex_repo.get_latest_summary(db, symbol.id)
+    if summary is None:
+        raise BusinessRuleError("NO_OPTIONS_DATA", "Bu sembol için opsiyon verisi bulunmuyor.")
+
+    strikes = gex_repo.get_strikes_for_run(db, symbol.id, summary.calculation_run_id)
+    strike_map: dict[float, float] = {}
+    for r in strikes:
+        strike_map[float(r.strike)] = strike_map.get(float(r.strike), 0.0) + float(r.net_gex)
+
+    spot = float(summary.spot_price_at_calc)
+    flip = float(summary.gamma_flip_strike) if summary.gamma_flip_strike is not None else None
+    levels = CalculationEngine().compute_levels(strike_map, spot, flip)
+
+    candles = get_provider().get_price_history(symbol.ticker, days)
+    result = analyze_levels(
+        symbol.ticker,
+        candles,
+        [(lv.label, lv.kind, lv.price) for lv in levels],
+        forward_days=forward_days,
+    )
+
+    # Yuvarlak sayı kontrolü (sert baseline): strike ızgarası adımını tahmin et
+    ks = sorted(strike_map)
+    step = min((b - a) for a, b in zip(ks, ks[1:])) if len(ks) > 1 else 5.0
+    round_rate, _n = _round_number_baseline(candles, forward_days, step, seed=abs(hash(symbol.ticker)) & 0xFFFF)
+
+    # GEX seviyelerinin dokunuş-ağırlıklı toplam tutma oranı
+    tot_t = sum(s.touches for s in result.levels if s.hold_rate is not None)
+    tot_h = sum(s.holds for s in result.levels if s.hold_rate is not None)
+    gex_rate = (tot_h / tot_t) if tot_t else None
+
+    return LevelBacktestResponse(
+        symbol=symbol.ticker,
+        days=result.days,
+        forward_days=forward_days,
+        levels=[
+            LevelStatOut(
+                label=s.label, kind=s.kind, price=s.price,
+                touches=s.touches, holds=s.holds, hold_rate=s.hold_rate,
+            )
+            for s in result.levels
+        ],
+        baseline_random=result.baseline_hold_rate,
+        baseline_round=round_rate,
+        gex_hold_rate=gex_rate,
+        verdict=result.verdict,
     )

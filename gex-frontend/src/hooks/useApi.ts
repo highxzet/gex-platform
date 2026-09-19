@@ -7,6 +7,7 @@ import type {
   DataStatusResponse,
   GexProfileResponse,
   JournalListResponse,
+  LevelBacktestResponse,
   NotificationListResponse,
   PriceLevelsResponse,
   RawDataResponse,
@@ -152,5 +153,17 @@ export function usePriceLevels(ticker: string | undefined, days = 90) {
     queryFn: () => apiClient.get<PriceLevelsResponse>(`/api/symbols/${ticker}/price-levels?days=${days}`),
     enabled: Boolean(ticker),
     staleTime: 120_000,
+  });
+}
+
+export function useLevelBacktest(ticker: string | undefined, days = 365, forwardDays = 5) {
+  return useQuery({
+    queryKey: ["level-backtest", ticker, days, forwardDays],
+    queryFn: () =>
+      apiClient.get<LevelBacktestResponse>(
+        `/api/symbols/${ticker}/level-backtest?days=${days}&forward_days=${forwardDays}`
+      ),
+    enabled: Boolean(ticker),
+    staleTime: 300_000,
   });
 }

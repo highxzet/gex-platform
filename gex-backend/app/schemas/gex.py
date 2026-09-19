@@ -108,3 +108,29 @@ class PriceLevelsResponse(BaseModel):
     computed_at: datetime
     candles: list[CandleOut]
     levels: list[LevelOut]
+
+
+class LevelStatOut(BaseModel):
+    label: str
+    kind: str
+    price: float
+    touches: int
+    holds: int
+    hold_rate: float | None
+
+
+class LevelBacktestResponse(BaseModel):
+    """GEX seviyelerinin fiyat tarafından saygı görüp görmediği analizi.
+
+    NOT: Bu bir GEX backtest'i DEĞİLDİR — bugünkü seviyeler geçmiş fiyata
+    uygulanır. Kontrol gruplarıyla birlikte yorumlanmalıdır.
+    """
+
+    symbol: str
+    days: int
+    forward_days: int
+    levels: list[LevelStatOut]
+    baseline_random: float | None
+    baseline_round: float | None
+    gex_hold_rate: float | None
+    verdict: str

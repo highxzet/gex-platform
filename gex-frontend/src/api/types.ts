@@ -216,3 +216,24 @@ export interface PriceLevelsResponse {
   candles: Candle[];
   levels: GexLevel[];
 }
+
+// ---------- Seviye analizi (edge doğrulama) ----------
+export interface LevelStat {
+  label: string;
+  kind: LevelKind;
+  price: number;
+  touches: number;
+  holds: number;
+  hold_rate: number | null;
+}
+
+export interface LevelBacktestResponse {
+  symbol: string;
+  days: number;
+  forward_days: number;
+  levels: LevelStat[];
+  baseline_random: number | null;
+  baseline_round: number | null;
+  gex_hold_rate: number | null;
+  verdict: string;
+}
