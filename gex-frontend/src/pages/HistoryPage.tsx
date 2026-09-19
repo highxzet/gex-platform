@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LineChart, type Series } from "@/components/LineChart";
+import { TradingViewLineChart, type TvPoint } from "@/components/TradingViewLineChart";
 import { Segment } from "@/components/Segment";
 import { SymbolSearchBox } from "@/components/SymbolSearchBox";
 import { Tabs } from "@/components/Tabs";
@@ -46,11 +46,7 @@ export function HistoryPage() {
   const changePct = first !== 0 ? ((last - first) / Math.abs(first)) * 100 : 0;
   const avg = points.length ? points.reduce((s, p) => s + p.total_net_gex, 0) / points.length : 0;
 
-  const series: Series[] = [
-    { name: "Net GEX", color: "var(--color-accent)", points: points.map((p, i) => ({ x: i, y: p.total_net_gex })) },
-  ];
-  const tickIdx = points.length ? [0, Math.floor(points.length / 2), points.length - 1] : [];
-  const xTickLabels = tickIdx.map((i) => ({ x: i, label: points[i]?.date.slice(5, 10) ?? "" }));
+  const tvPoints: TvPoint[] = points.map((p) => ({ time: p.date, value: p.total_net_gex }));
 
   return (
     <div>
@@ -212,7 +208,7 @@ export function HistoryPage() {
                       {active} · Net GEX ({range})
                     </h2>
                     {points.length > 1 ? (
-                      <LineChart series={series} height={320} area zeroLine yFormat={(v) => gexShort(v)} xTickLabels={xTickLabels} />
+                      <TradingViewLineChart points={tvPoints} height={320} area zeroLine formatter={gexShort} />
                     ) : (
                       <p className="muted" style={{ fontSize: "var(--text-sm)" }}>
                         Grafik için en az 2 ölçüm gerekiyor ({points.length} kayıt var). Günlük kapanış

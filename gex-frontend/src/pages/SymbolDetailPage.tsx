@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Tabs } from "@/components/Tabs";
 import { Segment } from "@/components/Segment";
 import { RegimeBadge } from "@/components/RegimeBadge";
 import { GexProfileChart } from "@/components/GexProfileChart";
-import { TradingViewPriceChart } from "@/components/TradingViewPriceChart";
+import { TradingViewPriceChart, type ChartLevel } from "@/components/TradingViewPriceChart";
+import { TradingViewLineChart, type TvPoint } from "@/components/TradingViewLineChart";
 import { SymbolSearchBox } from "@/components/SymbolSearchBox";
-import { PineExport } from "@/components/PineExport";
-import { LineChart, type Series } from "@/components/LineChart";
+import { PineEditor } from "@/components/PineEditor";
 import { EmptyState, ErrorState, RefreshingDot, Skeleton } from "@/components/States";
 import { useGexProfile, usePriceLevels, useRawData, useTimeSeries, useWatchlist } from "@/hooks/useApi";
 import { gexShort, money, strike as fmtStrike, timeAgo } from "@/utils/format";
@@ -17,13 +17,15 @@ const TABS = [
   { value: "gex", label: "GEX Profili" },
   { value: "levels", label: "Destek / Direnç" },
   { value: "series", label: "Zaman Serisi" },
+  { value: "pine", label: "Pine Editör" },
   { value: "raw", label: "Ham Veri" },
 ];
 
+// Lightweight Charts CSS var() kabul etmediği için gerçek hex kullanılır.
 const LEVEL_COLOR: Record<string, string> = {
-  resistance: "var(--color-negative)",
-  support: "var(--color-positive)",
-  flip: "var(--color-warning)",
+  resistance: "#f0616d",
+  support: "#3fb950",
+  flip: "#d9a441",
 };
 
 type PriceRange = "30" | "90" | "180" | "365";
@@ -48,6 +50,25 @@ export function SymbolDetailPage() {
   const { data: priceLevels, isLoading: levelsLoading } = usePriceLevels(
     tab === "levels" ? active : undefined,
     Number(priceRange)
+  );
+
+  // GEX seviyeleri -> grafik çizgileri
+  const chartLevels: ChartLevel[] = useMemo(
+    () =>
+      (priceLevels?.levels ?? []).map((lv) => ({
+        price: lv.price,
+        label: lv.label,
+        color: LEVEL_COLOR[lv.kind] ?? "#8b93a1",
+        width: lv.kind === "flip" ? 1 : Math.max(1, Math.round(lv.strength * 3)),
+        dashed: lv.kind !== "flip",
+        dotted: lv.kind === "flip",
+      })),
+    [priceLevels]
+  );
+
+  const seriesPoints: TvPoint[] = useMemo(
+    () => (series?.series ?? []).map((p) => ({ time: p.date, value: p.total_net_gex })),
+    [series]
   );
 
   const picker = (
@@ -92,21 +113,6 @@ export function SymbolDetailPage() {
 
   const flipDistance =
     profile.gamma_flip_strike != null ? profile.spot_price - profile.gamma_flip_strike : null;
-
-  const seriesData: Series[] = series
-    ? [{
-        name: "Net GEX",
-        color: "var(--color-accent)",
-        points: series.series.map((p, i) => ({ x: i, y: p.total_net_gex })),
-      }]
-    : [];
-
-  const seriesTicks = series && series.series.length
-    ? [0, Math.floor(series.series.length / 2), series.series.length - 1].map((i) => ({
-        x: i,
-        label: series.series[i]?.date.slice(5, 10) ?? "",
-      }))
-    : [];
 
   return (
     <div>
@@ -162,6 +168,10 @@ export function SymbolDetailPage() {
             putWallStrike={profile.put_wall_strike}
             bandPct={Number(band)}
           />
+          <p className="muted" style={{ fontSize: "var(--text-xs)", marginTop: "var(--space-4)" }}>
+            Bu grafik strike bazlı yatay bar dağılımıdır (zaman serisi değildir), bu yüzden
+            TradingView yerine kendi çizim bileşenimizi kullanır.
+          </p>
         </section>
       )}
 
@@ -187,7 +197,7 @@ export function SymbolDetailPage() {
             <>
               <TradingViewPriceChart
                 candles={priceLevels.candles}
-                levels={priceLevels.levels}
+                levels={chartLevels}
                 spotPrice={priceLevels.spot_price}
               />
 
@@ -224,19 +234,10 @@ export function SymbolDetailPage() {
                   })}
                 </tbody>
               </table>
-
-              <p className="muted" style={{ fontSize: "var(--text-xs)", marginTop: "var(--space-4)", lineHeight: 1.6 }}>
-                Spot üstündeki pozitif GEX yığılmaları <strong style={{ color: "var(--color-negative)" }}>direnç</strong>{" "}
-                (dealer yükselişte satar), spot altındaki negatif yığılmalar{" "}
-                <strong style={{ color: "var(--color-positive)" }}>destek</strong> (dealer düşüşte alır) olarak
-                yorumlanır. Çizgi kalınlığı ve çubuk seviyenin gücünü gösterir.
-              </p>
             </>
           )}
         </section>
       )}
-
-      {tab === "levels" && <PineExport scope={active} />}
 
       {tab === "series" && (
         <section className="ui-card ui-card--pad">
@@ -252,23 +253,18 @@ export function SymbolDetailPage() {
               ]}
             />
           </div>
-          {series && series.series.length > 1 ? (
-            <LineChart
-              series={seriesData}
-              height={300}
-              area
-              zeroLine
-              yFormat={(v) => gexShort(v)}
-              xTickLabels={seriesTicks}
-            />
+          {seriesPoints.length > 1 ? (
+            <TradingViewLineChart points={seriesPoints} height={320} area zeroLine formatter={gexShort} />
           ) : (
             <p className="muted">
-              Zaman serisi için en az 2 ölçüm gerekiyor ({series?.series.length ?? 0} kayıt var) —
-              veri toplama işi çalıştıkça dolacak.
+              Zaman serisi için en az 2 ölçüm gerekiyor ({seriesPoints.length} kayıt var) — günlük
+              kapanış anlık görüntüsü işi çalıştıkça dolacak.
             </p>
           )}
         </section>
       )}
+
+      {tab === "pine" && <PineEditor ticker={active} days={Number(priceRange)} />}
 
       {tab === "raw" && (
         <section className="ui-card">
