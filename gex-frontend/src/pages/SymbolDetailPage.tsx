@@ -4,7 +4,7 @@ import { Tabs } from "@/components/Tabs";
 import { Segment } from "@/components/Segment";
 import { RegimeBadge } from "@/components/RegimeBadge";
 import { GexProfileChart } from "@/components/GexProfileChart";
-import { PriceLevelsChart } from "@/components/PriceLevelsChart";
+import { TradingViewPriceChart } from "@/components/TradingViewPriceChart";
 import { SymbolSearchBox } from "@/components/SymbolSearchBox";
 import { LineChart, type Series } from "@/components/LineChart";
 import { EmptyState, ErrorState, RefreshingDot, Skeleton } from "@/components/States";
@@ -184,7 +184,7 @@ export function SymbolDetailPage() {
 
           {priceLevels && (
             <>
-              <PriceLevelsChart
+              <TradingViewPriceChart
                 candles={priceLevels.candles}
                 levels={priceLevels.levels}
                 spotPrice={priceLevels.spot_price}
