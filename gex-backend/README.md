@@ -1,4 +1,4 @@
-# GEX Backend (FastAPI)
+# GEX Backend 
 
 Net Gamma Exposure (GEX) hesaplama ve izleme platformunun backend'i.
 Mimari ve spesifikasyon: `gex-platform-build-spec.md` (Bölüm 6, 7, 8, 11).
@@ -40,7 +40,7 @@ routers/  →  services/  →  repositories/  →  PostgreSQL
 - `schemas/`   Pydantic request/response (Bölüm 7)
 
 ## Yol haritası (Bölüm 19)
-- **Faz 0 (bu skeleton):** app boot olur, `/health` çalışır. ✅
+- **Faz 0 (bu skeleton):** app boot olur, `/health` çalışır. 
 - **Faz 1:** modeller + `CalculationEngine` tam implementasyonu + %100 birim test.
 - **Faz 2–3:** veri kaynağı entegrasyonu + zamanlanmış iş + DB yazma.
 - **Faz 4–5:** kimlik doğrulama + temel API endpoint'leri.
